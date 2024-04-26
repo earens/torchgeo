@@ -153,6 +153,67 @@ class RandomGeoSampler(GeoSampler):
             length of the epoch
         """
         return self.length
+    
+class RandomGeoPointSampler(GeoSampler):
+    """ Extension of the RandomGeoSampler class to  sample around points"""
+    
+    def __init__(
+        self,
+        scene_dataset: GeoDataset,
+        point_dataset: Index,
+        size: tuple[float, float] | float,
+        length: int | None = None,
+        roi: BoundingBox | None = None,
+        units: Units = Units.PIXELS,
+        centered: bool = False,
+    ) -> None:
+        
+        super().__init__(point_dataset, roi)
+
+        self.size = _to_tuple(size)
+        self.centered = centered
+
+        #bbox size wrt res and pixel size
+        if units == Units.PIXELS:
+            self.size = (self.size[0] * self.res, self.size[1] * self.res)
+
+        #list all points that can potentially be sampled 
+        self.hits = list(self.index.intersection(self.index.bounds, objects=True))
+
+        if length is not None:
+            self.length = length
+        else: 
+            self.length = len(self.hits)
+        
+    def __iter__(self) -> Iterator[BoundingBox]:
+            """Return the index of a dataset.
+
+            Returns:
+                (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+            """
+            for _ in range(self.length):
+                # Choose a random tile, #TODO: here goes weighted random sampler approach but we need to know order of points for that
+                idx = torch.randint(0, len(self.hits), (1,)).item()
+                hit = self.hits[idx]
+                bounds = BoundingBox(*hit.bounds)
+
+                extent = 1
+                if self.centered:
+                    extent = 2
+
+                bounds = BoundingBox(
+                    bounds.minx - self.size[1] / extent,
+                    bounds.maxx + self.size[1] / extent,
+                    bounds.miny - self.size[0] / extent,
+                    bounds.maxy + self.size[0] / extent,
+                    bounds.mint,
+                    bounds.maxt,
+                )
+                    
+                # Choose a random index within that tile
+                bounding_box = get_random_bounding_box(bounds, self.size, self.res)
+
+                yield bounding_box
 
 
 class GridGeoSampler(GeoSampler):

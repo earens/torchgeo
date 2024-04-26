@@ -428,6 +428,18 @@ class BoundingBox:
         """
         return self.area * (self.maxt - self.mint)
 
+    @property
+    def center(self) -> tuple[float, float]:
+        """Center of bounding box.
+
+        Returns:
+            center coordinates in BoundigBox format (x, x, y, y)
+
+        """
+        x = (self.minx + self.maxx) / 2
+        y = (self.miny + self.maxy) / 2
+        return BoundingBox(x, x, y, y, self.mint, self.maxt)
+
     def intersects(self, other: BoundingBox) -> bool:
         """Whether or not two bounding boxes intersect.
 

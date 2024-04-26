@@ -320,6 +320,24 @@ class GeoDataset(Dataset[dict[str, Any]], abc.ABC):
         return sorted(files)
 
 
+class PointDataset(GeoDataset):
+    """Abstract base class for datasets containing point data.
+
+    """
+
+    def __init__(
+        self,
+        paths: str | Iterable[str] = "data",
+        crs: CRS | None = None,
+        res: float | None = None,
+        bands: Sequence[str] | None = None,
+        transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        cache: bool = True,
+    ) -> None:
+        
+        super().__init__(transforms)
+
+
 class RasterDataset(GeoDataset):
     """Abstract base class for :class:`GeoDataset` stored as raster files."""
 
@@ -958,22 +976,47 @@ class IntersectionDataset(GeoDataset):
         # Merge dataset indices into a single index
         self._merge_dataset_indices()
 
-    def _merge_dataset_indices(self) -> None:
-        """Create a new R-tree out of the individual indices from two datasets."""
+    def _create_intersection_tree(self, ds1: GeoDataset, ds2: GeoDataset, point:bool) -> None:
+
+        def _bbox_collate_point(bbox1: BoundingBox, bbox2: BoundingBox) -> BoundingBox:
+            return bbox1 
+        def _bbox_collate(bbox1: BoundingBox, bbox2: BoundingBox) -> BoundingBox:
+            return bbox1 & bbox2
+        
+        if point:
+            collate = _bbox_collate_point
+        else:
+            collate = _bbox_collate
+        
         i = 0
-        ds1, ds2 = self.datasets
+
         for hit1 in ds1.index.intersection(ds1.index.bounds, objects=True):
             for hit2 in ds2.index.intersection(hit1.bounds, objects=True):
                 box1 = BoundingBox(*hit1.bounds)
                 box2 = BoundingBox(*hit2.bounds)
-                box3 = box1 & box2
+
+                box3 = collate(box1, box2)
                 # Skip 0 area overlap (unless 0 area dataset)
                 if box3.area > 0 or box1.area == 0 or box2.area == 0:
                     self.index.insert(i, tuple(box3))
                     i += 1
-
+        
         if i == 0:
             raise RuntimeError("Datasets have no spatiotemporal intersection")
+        
+
+    def _merge_dataset_indices(self) -> None:
+        """Create a new R-tree out of the individual indices from two datasets."""
+        ds1, ds2 = self.datasets
+        #check if the datasets are PointDataset
+        if isinstance(ds1, PointDataset) and isinstance(ds2, PointDataset):
+            raise TypeError("Intersection of PointDatasets is not supported.")
+        else:
+            #pointdataset should be in second position
+            if isinstance(ds1, PointDataset):
+                ds1, ds2 = ds2, ds1
+
+        self._create_intersection_tree(ds1, ds2, isinstance(ds2, PointDataset))
 
     def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
         """Retrieve image and metadata indexed by query.
