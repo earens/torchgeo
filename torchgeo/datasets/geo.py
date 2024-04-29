@@ -318,11 +318,10 @@ class GeoDataset(Dataset[dict[str, Any]], abc.ABC):
 
         # Sort the output to enforce deterministic behavior.
         return sorted(files)
-    
-class PointDataset(GeoDataset):
-    """Abstract base class for datasets containing point data.
 
-    """
+
+class PointDataset(GeoDataset):
+    """Abstract base class for datasets containing point data."""
 
     def __init__(
         self,
@@ -333,7 +332,6 @@ class PointDataset(GeoDataset):
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
-        
         super().__init__(transforms)
 
 

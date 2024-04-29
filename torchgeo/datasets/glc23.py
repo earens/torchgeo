@@ -6,17 +6,19 @@
 import glob
 import os
 import sys
-from datetime import datetime, timedelta
 from collections.abc import Callable
-from typing import Any, cast, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from rasterio.crs import CRS
 
-from torchgeo.datasets.geo import GeoDataset
 from torchgeo.datasets.geo import PointDataset
-from torchgeo.datasets.utils import  BoundingBox, DatasetNotFoundError, disambiguate_timestamp
+from torchgeo.datasets.utils import (
+    BoundingBox,
+    DatasetNotFoundError,
+    disambiguate_timestamp,
+)
 
 
 class GLC23(PointDataset):
@@ -25,14 +27,16 @@ class GLC23(PointDataset):
     TODO: add more details about the dataset
     """
 
-    res = 0 # TODO: check if this breaks something
+    res = 0  # TODO: check if this breaks something
     _crs = CRS.from_epsg(4326)  # Lat/Lon
 
     def __init__(
-            self, root: str = "data", 
-            single_instance: bool = False,
-            centered: bool = False,
-            transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,) -> None:
+        self,
+        root: str = "data",
+        single_instance: bool = False,
+        centered: bool = False,
+        transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
         """Initialize a new Dataset instance.
 
         Args:
@@ -50,7 +54,6 @@ class GLC23(PointDataset):
 
         self.transforms = transforms
 
-
         files = glob.glob(os.path.join(root, "**.csv"))
         if not files:
             raise DatasetNotFoundError(self)
@@ -59,11 +62,16 @@ class GLC23(PointDataset):
         data = pd.read_table(
             files[0],
             engine="c",
-            usecols=["lat", "lon", "dayOfYear", "year","speciesId"],
+            usecols=["lat", "lon", "dayOfYear", "year", "speciesId"],
             sep=";",
-            nrows=10000, #TODO: remove this and replace with pre-processing option (load precomputed r-tree)
+            nrows=10000,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
         )
-        data = data[["lat", "lon", "dayOfYear", "year","speciesId"]]
+        data = (
+            data.groupby(["dayOfYear", "lat", "lon"])
+            .agg({"speciesId": lambda x: list(x), "year": "first"})
+            .reset_index()
+        )  # TODO: remove this and replace with pre-processing option (group and write to file)
+        data = data[["lat", "lon", "dayOfYear", "year", "speciesId"]]
 
         # Convert from pandas DataFrame to rtree Index
         i = 0
@@ -73,12 +81,16 @@ class GLC23(PointDataset):
                 continue
 
             if not pd.isna(dayOfYear) and not pd.isna(year):
-                mint, maxt = disambiguate_timestamp("-".join((str(dayOfYear), str(year))), "%j-%Y")
+                mint, maxt = disambiguate_timestamp(
+                    "-".join((str(dayOfYear), str(year))), "%j-%Y"
+                )
             else:
                 mint, maxt = 0, sys.maxsize
 
             coords = (x, x, y, y, mint, maxt)
-            self.index.insert(i, coords,speciesId)  #insert into r-tree with speciesId as object
+            self.index.insert(
+                i, coords, speciesId
+            )  # insert into r-tree with speciesId as object
             i += 1
 
     def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
@@ -93,45 +105,41 @@ class GLC23(PointDataset):
         Raises:
             IndexError: if query is not found in the index
         """
-        
-        # if center only look for one point near center 
+        # if center only look for one point near center
         if query.area > 0 and self.single_instance and self.centered:
             center = query.center
-            hits = list(self.index.nearest(tuple(center), 1, objects=True))   
-        #otherwise retrieve all points in the box
+            hits = list(self.index.nearest(tuple(center), 1, objects=True))
+        # otherwise retrieve all points in the box
         else:
             hits = list(self.index.intersection(tuple(query), objects=True))
 
-        #allow nodata returns (base case)
+        # allow nodata returns (base case)
         if len(hits) == 0:
             bboxes, labels, location = [], [], []
         else:
             bboxes, labels = zip(*[(hit.bounds, hit.object) for hit in hits])
 
-            # group labels by bbox
-            unique_bboxes = set(tuple(b) for b in bboxes)
-            grouped_labels = [[labels[i] for i, b in enumerate(bboxes) if tuple(b) == bbox] for bbox in unique_bboxes]
-
-            #if single instance, pick random location
+            # if single instance, pick random location
             if query.area > 0 and self.single_instance and not self.centered:
-                #pick random point from the list
-                idx = np.random.randint(0, len(unique_bboxes))
-                bboxes = [list(unique_bboxes)[idx]]
-                labels = [grouped_labels[idx]]
-            else:
-                bboxes = list(unique_bboxes)
-                labels = grouped_labels
+                idx = np.random.randint(0, len(bboxes))
+                bboxes = [bboxes[idx]]
+                labels = [labels[idx]]
 
-
-            #location transforms
+            # location transforms
             if self.transforms is not None:
-                location = [np.mean(np.array(bboxes)[:,2:4], axis=1), np.mean(np.array(bboxes)[:,0:2],axis=1)]
+                location = [
+                    np.mean(np.array(bboxes)[:, 2:4], axis=1),
+                    np.mean(np.array(bboxes)[:, 0:2], axis=1),
+                ]
                 location = self.transforms(location)
 
-        #return not only metadata but also encoded location and label (speciesId)
-        sample = {"crs": self.crs, "res": self.res, "bbox": bboxes, "label": labels, "location": location}
+        # return not only metadata but also encoded location and label (speciesId)
+        sample = {
+            "crs": self.crs,
+            "res": self.res,
+            "bbox": bboxes,
+            "label": labels,
+            "location": location,
+        }
 
         return sample
-    
-
-    

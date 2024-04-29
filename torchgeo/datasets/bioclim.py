@@ -3,24 +3,12 @@
 
 """Bioclim Rasters."""
 
-from collections.abc import Callable, Iterable, Sequence
-from typing import Any, Optional
+from collections.abc import Callable, Sequence
+from typing import Any
 
-import matplotlib.pyplot as plt
-import torch
-from matplotlib.figure import Figure
 from rasterio.crs import CRS
 
-from torchgeo.datasets.geo import RasterDataset, GeoDataset
-from torchgeo.datasets.utils import RGBBandsMissingError
-
-from src.data.datasets.geo import AdaptedIntersectionDataset
-
- 
-
-import re
-import os
-
+from torchgeo.datasets.geo import RasterDataset
 
 
 class Bioclim(RasterDataset):
@@ -30,29 +18,49 @@ class Bioclim(RasterDataset):
 
     filename_glob = "bio*{}.*"
 
-    #filename_regex = r"""
+    # filename_regex = r"""
     #    (?P<type>\w+)
     #    (?P<band>\d{1}|\d{2})
     #    _(?P<start>\d{4})
     #    _(?P<stop>\d{4})
     #    \.
-    #"""
+    # """
 
     filename_regex = r"""
         (?P<type>\w{3})
         (?P<band>\d+)
         \.
     """
-    
+
     date_format = "%Y"
-    all_bands = ["1", "2", "3", "4","5","6","7","8","9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]
+    all_bands = [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+    ]
     separate_files = True
 
     def __init__(
         self,
         paths: str | list[str] = "data",
-        crs: Optional[CRS] = None,
-        res: Optional[float] = None,
+        crs: CRS | None = None,
+        res: float | None = None,
         bands: Sequence[str] = None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
@@ -77,7 +85,6 @@ class Bioclim(RasterDataset):
         .. versionchanged:: 0.5
            *root* was renamed to *paths*.
         """
-
         bands = bands or self.all_bands
         assert len(bands) > 0, "'bands' cannot be an empty list"
         assert len(bands) == len(set(bands)), "'bands' contains duplicate bands"
@@ -87,7 +94,7 @@ class Bioclim(RasterDataset):
 
         self.filename_glob = self.filename_glob.format(bands[0])
 
-        '''
+        """
         #check if the file name is in the correct format, if not rename the file
         filename_regex = re.compile(self.filename_regex, re.VERBOSE)
         self.paths = paths
@@ -101,9 +108,6 @@ class Bioclim(RasterDataset):
                 os.rename(filepath, os.path.join(os.path.dirname(filepath), new_file_name))  
                 self.paths[i] = os.path.join(os.path.dirname(filepath), new_file_name)
 
-        '''
-              
+        """
+
         super().__init__(paths, crs, res, bands, transforms, cache)
-
-    
-
