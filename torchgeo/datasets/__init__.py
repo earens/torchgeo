@@ -10,6 +10,7 @@ from .airphen import Airphen
 from .astergdem import AsterGDEM
 from .benin_cashews import BeninSmallHolderCashews
 from .bigearthnet import BigEarthNet
+from .bioclim import Bioclim
 from .biomassters import BioMassters
 from .cbf import CanadianBuildingFootprints
 from .cdl import CDL
@@ -56,6 +57,7 @@ from .geo import (
     VectorDataset,
 )
 from .gid15 import GID15
+from .glc23 import GLC23
 from .globbiomass import GlobBiomass
 from .idtrees import IDTReeS
 from .inaturalist import INaturalist
@@ -146,6 +148,7 @@ __all__ = (
     "AgriFieldNet",
     "Airphen",
     "AsterGDEM",
+    "Bioclim",
     "CanadianBuildingFootprints",
     "CDL",
     "Chesapeake",
@@ -166,6 +169,7 @@ __all__ = (
     "EuroCrops",
     "EUDEM",
     "GBIF",
+    "GLC23",
     "GlobBiomass",
     "INaturalist",
     "IOBench",
