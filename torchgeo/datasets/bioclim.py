@@ -5,6 +5,7 @@
 
 from collections.abc import Callable, Sequence
 from typing import Any
+import glob
 
 from rasterio.crs import CRS
 
@@ -93,6 +94,8 @@ class Bioclim(RasterDataset):
             assert band in self.all_bands, f"invalid band '{band}'"
 
         self.filename_glob = self.filename_glob.format(bands[0])
+
+        paths = glob.glob(f"{paths}*.tif")
 
         """
         #check if the file name is in the correct format, if not rename the file

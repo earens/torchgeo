@@ -9,6 +9,8 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
+import torch
+
 import numpy as np
 import pandas as pd
 from rasterio.crs import CRS
@@ -30,11 +32,13 @@ class GLC23(PointDataset):
     res = 0  # TODO: check if this breaks something
     _crs = CRS.from_epsg(4326)  # Lat/Lon
 
+
     def __init__(
         self,
         root: str = "data",
         single_instance: bool = False,
         centered: bool = False,
+        prediction: bool = False,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         """Initialize a new Dataset instance.
@@ -54,29 +58,49 @@ class GLC23(PointDataset):
 
         self.transforms = transforms
 
-        files = glob.glob(os.path.join(root, "**.csv"))
+
+        files = root
         if not files:
             raise DatasetNotFoundError(self)
 
         # Read tab-delimited CSV file
-        data = pd.read_table(
-            files[0],
-            engine="c",
-            usecols=["lat", "lon", "dayOfYear", "year", "speciesId"],
-            sep=";",
-            nrows=10000,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
-        )
-        data = (
-            data.groupby(["dayOfYear", "lat", "lon"])
-            .agg({"speciesId": lambda x: list(x), "year": "first"})
-            .reset_index()
-        )  # TODO: remove this and replace with pre-processing option (group and write to file)
-        data = data[["lat", "lon", "dayOfYear", "year", "speciesId"]]
+        if not prediction:
+            data = pd.read_table(
+                files,
+                engine="c",
+                usecols=["lat", "lon", "dayOfYear", "year", "speciesId"],
+                sep=";",
+                nrows=10000,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
+            )
+            data = (
+                data.groupby(["dayOfYear", "lat", "lon"])
+                .agg({"speciesId": lambda x: list(x), "year": "first"})
+                .reset_index()
+            )  # TODO: remove this and replace with pre-processing option (group and write to file)
+            data = data[["lat", "lon", "dayOfYear", "year", "speciesId"]]
+        else:
+            data = pd.read_table(
+                files,
+                engine="c",
+                usecols=["lat", "lon", "dayOfYear", "year"],
+                sep=";",
+                nrows=100,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
+            )
+            data = data[["lat", "lon", "dayOfYear", "year"]]
 
         # Convert from pandas DataFrame to rtree Index
         i = 0
-        for y, x, dayOfYear, year, speciesId in data.itertuples(index=False, name=None):
+        for sample in data.itertuples(index=False, name=None):
             # Skip rows without lat/lon
+            y = sample[0]
+            x = sample[1]
+            dayOfYear = sample[2]
+            year = sample[3]
+            if not prediction:
+                speciesId = sample[4]
+            else:
+                speciesId = []
+                
             if np.isnan(y) or np.isnan(x):
                 continue
 
@@ -117,7 +141,8 @@ class GLC23(PointDataset):
         if len(hits) == 0:
             bboxes, labels, location = [], [], []
         else:
-            bboxes, labels = zip(*[(hit.bounds, hit.object) for hit in hits])
+            bboxes, labels = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))
+            bboxes = [BoundingBox(*bbox) for bbox in bboxes]
 
             # if single instance, pick random location
             if query.area > 0 and self.single_instance and not self.centered:
@@ -125,20 +150,22 @@ class GLC23(PointDataset):
                 bboxes = [bboxes[idx]]
                 labels = [labels[idx]]
 
+            location = [(bbox.center.minx, bbox.center.miny) for bbox in bboxes]
+            location = torch.tensor(location, dtype=torch.float32)
+            labels = torch.tensor(labels, dtype=torch.int64)
+            #one. hot encoding
+            y = torch.zeros(10040)
+            y[labels] = 1
+
             # location transforms
             if self.transforms is not None:
-                location = [
-                    np.mean(np.array(bboxes)[:, 2:4], axis=1),
-                    np.mean(np.array(bboxes)[:, 0:2], axis=1),
-                ]
                 location = self.transforms(location)
 
         # return not only metadata but also encoded location and label (speciesId)
         sample = {
             "crs": self.crs,
-            "res": self.res,
             "bbox": bboxes,
-            "label": labels,
+            "label": y,
             "location": location,
         }
 
