@@ -653,6 +653,25 @@ def concat_samples(samples: Iterable[dict[Any, Any]]) -> dict[Any, Any]:
     return collated
 
 
+def sum_samples(samples: Iterable[dict[Any, Any]]) -> dict[Any, Any]:
+    """Sums a list of one-hot-encoded targets along an existing axis.
+
+    Useful for joining point samples in a :class:`torchgeo.datasets.PointDataset`.
+
+    Args:
+        samples: list of samples
+
+    Returns:
+        a single sample
+
+    """
+    collate = torch.sum(torch.stack([sample for sample in samples]), dim=0)
+    collate[collate>1]=1
+    collate = torch.tensor(collate).astype(torch.float64)
+    return collate 
+
+    
+
 def merge_samples(samples: Iterable[dict[Any, Any]]) -> dict[Any, Any]:
     """Merge a list of samples.
 

@@ -11,6 +11,8 @@ from typing import Any
 
 import torch
 
+
+
 import numpy as np
 import pandas as pd
 from rasterio.crs import CRS
@@ -20,13 +22,25 @@ from torchgeo.datasets.utils import (
     BoundingBox,
     DatasetNotFoundError,
     disambiguate_timestamp,
+    sum_samples
 )
 
 
 class GLC23(PointDataset):
-    """Dataset for Location-based species presence prediction.
+    """GeoLifeCLef2023 species observations.
+    
+    The `GeoLifeClef2023 <https://www.imageclef.org/GeoLifeCLEF2023>` dataset is a collection of species observations and environmental rasters in Europe for biodiversity monitoring. This dataset comprises a subset only covering point wise species occurence data.
 
-    TODO: add more details about the dataset
+    Dataset features:
+    * Presence-Only Data retreived from GBIF covering the whole EU territory
+    * Presence-Absence Surveys in areas of 10 to 400 m²
+
+    Dataset format:
+    * CSV files with location and species ID
+
+    Dataset classes:
+    * 10040 species IDs
+
     """
 
     res = 0  # TODO: check if this breaks something
@@ -40,6 +54,7 @@ class GLC23(PointDataset):
         centered: bool = False,
         prediction: bool = False,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        collate_fn: Callable[[list[dict[str, Any]]], dict[str, Any]] = sum_samples,
     ) -> None:
         """Initialize a new Dataset instance.
 
@@ -57,47 +72,42 @@ class GLC23(PointDataset):
         self.centered = centered
 
         self.transforms = transforms
+        self.collate_fn = collate_fn
 
 
         files = root
         if not files:
             raise DatasetNotFoundError(self)
+        
+        
+        columns = ["lat", "lon", "dayOfYear", "year"]
+        if not prediction:
+            columns.append("speciesId")
+        
 
         # Read tab-delimited CSV file
-        if not prediction:
-            data = pd.read_table(
-                files,
-                engine="c",
-                usecols=["lat", "lon", "dayOfYear", "year", "speciesId"],
-                sep=";",
-                nrows=10000,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
-            )
+        data = pd.read_table(
+            files,
+            engine="c",
+            usecols=columns,
+            sep=";",
+            nrows=1000,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
+        )
+        if not prediction: 
             data = (
                 data.groupby(["dayOfYear", "lat", "lon"])
                 .agg({"speciesId": lambda x: list(x), "year": "first"})
                 .reset_index()
             )  # TODO: remove this and replace with pre-processing option (group and write to file)
-            data = data[["lat", "lon", "dayOfYear", "year", "speciesId"]]
-        else:
-            data = pd.read_table(
-                files,
-                engine="c",
-                usecols=["lat", "lon", "dayOfYear", "year"],
-                sep=";",
-                nrows=100,  # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
-            )
-            data = data[["lat", "lon", "dayOfYear", "year"]]
+        data = data[columns]
+        
 
         # Convert from pandas DataFrame to rtree Index
         i = 0
-        for sample in data.itertuples(index=False, name=None):
-            # Skip rows without lat/lon
-            y = sample[0]
-            x = sample[1]
-            dayOfYear = sample[2]
-            year = sample[3]
+        for y,x,dayOfYear,year, *speciesId in data.itertuples(index=False, name=None):
+          
             if not prediction:
-                speciesId = sample[4]
+                speciesId = speciesId[0]
             else:
                 speciesId = []
                 
@@ -150,23 +160,29 @@ class GLC23(PointDataset):
                 bboxes = [bboxes[idx]]
                 labels = [labels[idx]]
 
-            location = [(bbox.center.minx, bbox.center.miny) for bbox in bboxes]
+            location = (query.center.minx, query.center.miny) #for multiple samples, location defaults to center of bbox
             location = torch.tensor(location, dtype=torch.float32)
-            labels = torch.tensor(labels, dtype=torch.int64)
-            #one. hot encoding
-            y = torch.zeros(10040)
-            y[labels] = 1
+        
+            #one hot encode labels
+            labels = [torch.nn.functional.one_hot(torch.tensor(label), num_classes=10040) for label in labels]
+            labels = [(torch.sum(label, dim=0)>0).double() for label in labels if len(label) > 0]
+
+            if query.area > 0 and not self.single_instance and not self.centered:
+                #collate multiple labels
+                labels = self.collate_fn(labels)
+            else:
+                labels = labels[0]
+
 
             # location transforms
-            if self.transforms is not None:
+            if self.transforms is not None:                
                 location = self.transforms(location)
 
         # return not only metadata but also encoded location and label (speciesId)
         sample = {
             "crs": self.crs,
             "bbox": bboxes,
-            "label": y,
+            "label": labels,
             "location": location,
         }
-
         return sample

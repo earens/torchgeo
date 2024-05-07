@@ -170,6 +170,8 @@ class RandomGeoPointSampler(GeoSampler):
     ) -> None:
         super().__init__(point_dataset, roi)
 
+        self.res = scene_dataset.res
+
         self.size = _to_tuple(size)
         self.centered = centered
 
@@ -185,13 +187,23 @@ class RandomGeoPointSampler(GeoSampler):
         else:
             self.length = len(self.hits)
 
+    def __len__(self) -> int:
+        """Return the number of samples in a single epoch.
+
+        Returns:
+            length of the epoch
+        """
+        return self.length
+
     def __iter__(self) -> Iterator[BoundingBox]:
         """Return the index of a dataset.
 
         Returns:
             (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+
         """
-        for _ in range(self.length):
+        
+        for _ in range(len(self)):
             # Choose a random tile, #TODO: here goes weighted random sampler approach but we need to know order of points for that
             idx = torch.randint(0, len(self.hits), (1,)).item()
             hit = self.hits[idx]
