@@ -29,6 +29,9 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 from torchvision.datasets.folder import default_loader as pil_loader
+import pandas as pd
+
+import math
 
 from .utils import (
     BoundingBox,
@@ -333,6 +336,77 @@ class PointDataset(GeoDataset):
         cache: bool = True,
     ) -> None:
         super().__init__(transforms)
+
+
+        # Convert from pandas DataFrame to rtree Index
+        i = 0
+        for y,x,dayOfYear,year, *speciesId in self.data.itertuples(index=False, name=None):
+
+            speciesId = speciesId[0] if not self.prediction else [] # variable missing in prediction mode
+
+            if not pd.isna(dayOfYear) and not pd.isna(year):
+                mint, maxt = disambiguate_timestamp(
+                    "-".join((str(dayOfYear), str(year))), "%j-%Y"
+                )
+            else:
+                mint, maxt = 0, sys.maxsize
+
+            coords = (x, x, y, y, mint, maxt)
+            self.index.insert(
+                i, coords, speciesId
+            )  # insert into r-tree with speciesId as object
+            i += 1
+
+
+
+    def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
+        """Retrieve metadata indexed by query.
+
+        Args:
+            query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
+
+        Returns:
+            sample of metadata at that index
+
+        Raises:
+            IndexError: if query is not found in the index
+        """
+        # if center only look for one point near center
+        if query.area > 0 and self.single_instance and self.centered:
+            center = query.center
+            hits = list(self.index.nearest(tuple(center), 1, objects=True))
+        else:
+            hits = list(self.index.intersection(tuple(query), objects=True))
+
+        # allow nodata returns (base case)
+        if len(hits) == 0:
+            bboxes, labels, location = [], [], []
+        else:
+            bboxes, labels = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))
+            bboxes = [BoundingBox(*bbox) for bbox in bboxes]            
+            pixel_coords = [[math.ceil(round((bbox.minx-query.minx)/self.res,10))-1, math.ceil(round((bbox.miny-query.miny)/self.res,10))-1] for bbox in bboxes]
+            location = [[bbox.minx, bbox.miny] for bbox in bboxes]   
+
+            # if single instance, pick random location
+            if query.area > 0 and self.single_instance and not self.centered:
+                idx = np.random.randint(0, len(bboxes))
+                bboxes = [bboxes[idx]]
+                labels = [labels[idx]]
+                pixel_coords = [pixel_coords[idx]]
+
+            # location transforms
+            if self.transforms is not None:     
+                location = [self.transforms(loc) for loc in location]
+            
+        # return not only metadata but also encoded location and label (speciesId)
+        sample = {
+            "crs": self.crs,
+            "bbox": bboxes,
+            "label": labels,
+            "location": location,
+            "pixel_coords": pixel_coords,
+        }
+        return sample
 
 
 class RasterDataset(GeoDataset):

@@ -209,9 +209,7 @@ class RandomGeoPointSampler(GeoSampler):
             hit = self.hits[idx]
             bounds = BoundingBox(*hit.bounds)
 
-            extent = 1
-            if self.centered:
-                extent = 2
+            extent = 2 if self.centered else 1
 
             bounds = BoundingBox(
                 bounds.minx - self.size[1] / extent,

@@ -666,11 +666,10 @@ def sum_samples(samples: Iterable[dict[Any, Any]]) -> dict[Any, Any]:
 
     """
     collate = torch.sum(torch.stack([sample for sample in samples]), dim=0)
-    collate[collate>1]=1
+    collate[collate > 1] = 1
     collate = torch.tensor(collate).astype(torch.float64)
-    return collate 
+    return collate
 
-    
 
 def merge_samples(samples: Iterable[dict[Any, Any]]) -> dict[Any, Any]:
     """Merge a list of samples.
