@@ -12,12 +12,15 @@ import contextlib
 import gzip
 import lzma
 import os
+import glob
 import sys
 import tarfile
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast, overload
+from tqdm import tqdm
+from itertools import product
 
 import numpy as np
 import rasterio
@@ -439,6 +442,64 @@ class BoundingBox:
         x = (self.minx + self.maxx) / 2
         y = (self.miny + self.maxy) / 2
         return BoundingBox(x, x, y, y, self.mint, self.maxt)
+    
+    def num_queries(self, query_size: tuple[float, float], res: float, stride: int = 1) -> int:
+
+        """Number of queries that can be sampled within the bounding box.
+
+        Args:
+            query_size: size of the query bbox
+            res: resolution of the query
+            stride: stride of the sliding window
+
+        Returns:
+            number of queries
+
+        """
+        #TODO int? round?
+        width = int((self.maxx - self.minx)/res)
+        height = int((self.maxy - self.miny)/res)
+
+        return int((width - query_size[1]) * (height - query_size[0]) / stride**2)
+    
+    def index_to_query(self, index: int, query_size: tuple[float, float], res: float, stride: int = 1) -> int:
+
+        """Convert index of query to coordinates.
+        
+        Args:
+            query: query bbox
+            query_size: size of the query bbox
+            res: resolution of the query
+            stride: stride of the sliding window
+
+        Returns:
+            coordinates of the index
+        
+        """
+
+        width = int((self.maxx - self.minx)/res)
+
+        #break index into x and y
+        x = index % width
+        y = index // width
+
+        print(x, y)
+
+        #convert x and y to coordinates depending on stride
+
+        minx = self.minx + x* stride * res
+        maxx = minx + query_size[1] * res
+
+        miny = self.miny + y * stride * res
+        maxy = miny + query_size[0] * res
+
+        return BoundingBox(minx, maxx, miny, maxy, self.mint, self.maxt)
+
+
+
+        
+
+        
 
     def intersects(self, other: BoundingBox) -> bool:
         """Whether or not two bounding boxes intersect.
@@ -877,3 +938,38 @@ def array_to_tensor(array: np.typing.NDArray[Any]) -> Tensor:
     elif array.dtype == np.uint32:
         array = array.astype(np.int64)
     return torch.tensor(array)
+
+
+def tile_tif(in_path, out_path, size):
+    """Tile a tif file into smaller tiles.
+
+    Args:
+        in_path: path to the tif file
+        out_path: path to the output directory
+        size: size of the tiles
+    """
+    input_filenames = glob.glob(f"{in_path}*.tif")
+
+    def get_tiles(ds, width=size, height=size):
+        nols, nrows = ds.meta['width'], ds.meta['height']
+        offsets = product(range(0, nols, width), range(0, nrows, height))
+        big_window = rasterio.windows.Window(col_off=0, row_off=0, width=nols, height=nrows)
+        for col_off, row_off in  offsets:
+            window =rasterio.windows.Window(col_off=col_off, row_off=row_off, width=width, height=height).intersection(big_window)
+            transform = rasterio.windows.transform(window, ds.transform)
+            yield window, transform
+
+    print(f"Tiling data into {size}x{size} tiles")
+    for input_filename in tqdm(input_filenames):
+        with rasterio.open(os.path.join(in_path, input_filename)) as inds:
+        
+            meta = inds.meta.copy()
+
+            input_filename = os.path.splitext(input_filename)[0]
+
+            for window, transform in get_tiles(inds):
+                meta['transform'] = transform
+                meta['width'], meta['height'] = window.width, window.height
+                outpath = os.path.join(out_path, f"{input_filename}_{window.col_off}_{window.row_off}.tif")
+                with rasterio.open(outpath, 'w', **meta) as outds:
+                    outds.write(inds.read(window=window))

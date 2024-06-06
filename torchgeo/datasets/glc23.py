@@ -7,7 +7,7 @@ import glob
 import os
 import sys
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 
@@ -44,60 +44,54 @@ class GLC23(PointDataset):
     * 10040 species IDs
 
     """
-
-    res = 1 
-    _crs = CRS.from_epsg(4326)  # Lat/Lon
+    date_format = "%j-%Y"
+    res = 0
+    crs = CRS.from_epsg(4326)  # Lat/Lon
+    all_metadata_columns = ['lat',"lon","dayOfYear", "year",'glcID', 'gbifID', 'observer', 'datasetName', 'geoUncertaintyInM','speciesId', 'patchID', 'timeSerieID']
 
     def __init__(
         self,
-        root: str = "data",
-        single_instance: bool = False,
-        centered: bool = False,
-        prediction: bool = False,
+        paths: str = "data",
+        crs: CRS | None = None,
+        res: float = 0,        
+        metadata_columns: Sequence[str] = ["speciesId"],
+        location_columns: Sequence[str] = ["lon", "lat"],
+        time_columns: Sequence[str] = ["dayOfYear", "year"],
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        cache: bool = False,
     ) -> None:
         """Initialize a new Dataset instance.
 
         Args:
-            root: root directory where dataset can be found
-
-        Raises:
-            DatasetNotFoundError: If dataset is not found.
+            paths: one or more root directories to search or files to load
+            crs: :term:`coordinate reference system (CRS)` to warp to
+                (defaults to the CRS of the first file found)
+            res: resolution of the dataset in units of CRS
+                (defaults to the resolution of the first file found)
+            metadata_columns: columns with label information to return (defaults to ["speciesId"])
+            location_columns: columns with location information (defaults to ["lon", "lat"])
+            time_columns: columns with time information (defaults to ["dayOfYear", "year"])
+            transforms: a function/transform that takes an input sample
+                and returns a transformed version
+            cache: if True, cache file handle to speed up repeated sampling
         """
 
-        self.root = root
-        self.prediction = prediction
+        assert len(metadata_columns) == len(set(metadata_columns)), "Metadata columns must be unique"
+        assert len(location_columns) == len(set(location_columns)), "Location columns must be unique"
+        assert len(time_columns) == len(set(time_columns)), "Time columns must be unique"
 
-        files = glob.glob(os.path.join(root, '**.csv'))
-        if not files:
-            raise DatasetNotFoundError(self)
-        
-        # receptive field
-        self.single_instance = single_instance
-        self.centered = centered
 
-        self.transforms = transforms
+        for metadata_column in metadata_columns:
+            assert metadata_column in self.all_metadata_columns, f"Metadata column {metadata_column} not found in dataset"
+        for location_column in location_columns:
+            assert location_column in self.all_metadata_columns, f"Location column {location_column} not found in dataset"
+        for time_column in time_columns:
+            assert time_column in self.all_metadata_columns, f"Time column {time_column} not found in dataset"
 
-        # Read tab-delimited CSV file --> # TODO: remove this and replace with pre-processing option (load precomputed r-tree)
-        columns = ["lat", "lon", "dayOfYear", "year"]
-        if not prediction:
-            columns.append("speciesId")
-        data = pd.read_table(
-            files[0],
-            engine="c",
-            usecols=columns,
-            sep=";",
-            nrows=1000,  
-        )
-        if not prediction: 
-            data = (
-                data.groupby(["dayOfYear", "lat", "lon"])
-                .agg({"speciesId": lambda x: list(x), "year": "first"})
-                .reset_index()
-            )
-        self.data = data[columns]
+        super().__init__(paths, crs, res, metadata_columns, location_columns, time_columns, transforms, cache)
 
-        super().__init__()
+
+    
 
         
 

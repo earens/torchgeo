@@ -6,10 +6,16 @@
 from collections.abc import Callable, Sequence
 from typing import Any
 import glob
+import re
+import os
 
 from rasterio.crs import CRS
 
 from torchgeo.datasets.geo import RasterDataset
+
+from torchgeo.datasets.utils import tile_tif
+
+
 
 
 class Bioclim(RasterDataset):
@@ -17,7 +23,9 @@ class Bioclim(RasterDataset):
     TODO: add more details about the dataset
     """
 
-    filename_glob = "bio*{}.*"
+    filename_glob = "bio*.*"
+
+    filename_tiled_glob = "bio*_*_*.*"  
 
     # filename_regex = r"""
     #    (?P<type>\w+)
@@ -30,6 +38,14 @@ class Bioclim(RasterDataset):
     filename_regex = r"""
         (?P<type>\w{3})
         (?P<band>\d+)
+        \.
+    """
+
+    filename_tiled_regex = r"""
+        (?P<type>\w{3})
+        (?P<band>\d+)
+        _(?P<tile_x>\d+)
+        _(?P<tile_y>\d+)
         \.
     """
 
@@ -63,6 +79,7 @@ class Bioclim(RasterDataset):
         crs: CRS | None = None,
         res: float | None = None,
         bands: Sequence[str] = None,
+        tile: bool = False,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
@@ -75,6 +92,7 @@ class Bioclim(RasterDataset):
             res: resolution of the dataset in units of CRS
                 (defaults to the resolution of the first file found)
             bands: bands to return (defaults to ["VV", "VH"])
+            tile: boolean flag to indicate if the dataset should be tiled
             transforms: a function/transform that takes an input sample
                 and returns a transformed version
             cache: if True, cache file handle to speed up repeated sampling
@@ -94,8 +112,21 @@ class Bioclim(RasterDataset):
             assert band in self.all_bands, f"invalid band '{band}'"
 
         self.filename_glob = self.filename_glob.format(bands[0])
+       
 
-        paths = glob.glob(f"{paths}*.tif")
+        #check if data is tiled
+        if tile:
+            filename_tiled_regex = re.compile(self.filename_tiled_regex, re.VERBOSE)
+            matches = [re.match(filename_tiled_regex, os.path.basename(filepath)) for filepath in glob.glob(f"{paths[0]}*.tif")]
+            #if all None, then the data is not tiled
+            if all(match is None for match in matches):
+                #tile the data
+                for path in paths:
+                    tile_tif(path,path, 1024)
+            
+            self.filename_regex = self.filename_tiled_regex
+            self.filename_glob = self.filename_tiled_glob
+        
 
         """
         #check if the file name is in the correct format, if not rename the file

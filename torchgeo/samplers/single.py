@@ -5,14 +5,18 @@
 
 import abc
 from collections.abc import Callable, Iterable, Iterator
+import time
 
 import torch
 from rtree.index import Index, Property
 from torch.utils.data import Sampler
 
+import rasterio
+import numpy as np
+
 from ..datasets import BoundingBox, GeoDataset
 from .constants import Units
-from .utils import _to_tuple, get_random_bounding_box, tile_to_chips
+from .utils import _to_tuple, get_random_bounding_box, tile_to_chips, prepare_complex_roi, extract_valid_bboxes, image_coordinates_to_geocoordinates, extract_valid_tiles, check_tile_validity
 
 
 class GeoSampler(Sampler[BoundingBox], abc.ABC):
@@ -153,6 +157,180 @@ class RandomGeoSampler(GeoSampler):
             length of the epoch
         """
         return self.length
+    
+class ExtendedRandomGeoSampler(GeoSampler):
+    """Samples elements from a region of interest randomly.
+
+    This is particularly useful during training when you want to maximize the size of
+    the dataset and return as many random :term:`chips <chip>` as possible. Note that
+    randomly sampled chips may overlap.
+
+    This sampler is not recommended for use with tile-based datasets. Use
+    :class:`RandomBatchGeoSampler` instead.
+    """
+
+    def __init__(
+        self,
+        dataset: GeoDataset,
+        size: tuple[float, float] | float,
+        length: int | None = None,
+        roi: BoundingBox | None = None,
+        complex_roi: str | None = None,
+        units: Units = Units.PIXELS,
+        resample: int = 1,
+        thresh: float = 0.8,
+    ) -> None:
+        """Initialize a new Sampler instance.
+
+        The ``size`` argument can either be:
+
+        * a single ``float`` - in which case the same value is used for the height and
+          width dimension
+        * a ``tuple`` of two floats - in which case, the first *float* is used for the
+          height dimension, and the second *float* for the width dimension
+
+        .. versionchanged:: 0.3
+           Added ``units`` parameter, changed default to pixel units
+
+        .. versionchanged:: 0.4
+           ``length`` parameter is now optional, a reasonable default will be used
+
+        Args:
+            dataset: dataset to index from
+            size: dimensions of each :term:`patch`
+            length: number of random samples to draw per epoch
+                (defaults to approximately the maximal number of non-overlapping
+                :term:`chips <chip>` of size ``size`` that could be sampled from
+                the dataset)
+            roi: region of interest to sample from (minx, maxx, miny, maxy, mint, maxt)
+                (defaults to the bounds of ``dataset.index``)
+            units: defines if ``size`` is in pixel or CRS units
+        """
+        super().__init__(dataset, roi)
+        self.size = _to_tuple(size)
+        self.resample = resample
+        self.thresh = thresh
+        self.units = units
+        self.dataset = dataset
+
+        if complex_roi is not None:
+            self.complex_roi = rasterio.open(complex_roi)
+
+        if units == Units.PIXELS:
+            self.size = (self.size[0] * self.res, self.size[1] * self.res)
+
+        self.length = 0
+        self.hits = []
+        areas = []
+        validity = True
+        extraction_size = (int(self.size[0]/self.res),int(self.size[1]/self.res) ) if self.units == Units.PIXELS else (int(self.size[0]),int(self.size[1]))
+        
+        start = time.time()
+        if complex_roi is not None:
+            #find indices of duplicate bounds in hits
+            hits = [hit for hit in self.index.intersection(tuple(self.roi), objects=True)]
+            print(len(hits))
+            bounds = [BoundingBox(*hit.bounds) for hit in hits]
+            unique_bounds = list(set(bounds))
+
+            #for each bound, if there are duplicates, remove all but the first
+            for bound in unique_bounds:
+                #get all indices of the bound
+                indices = [j for j, b in enumerate(bounds) if b == bound]
+                #if there are duplicates, remove all but the first
+                if len(indices) > 1:
+                    for idx in sorted(indices[1:], reverse=True):
+
+                        hits.pop(idx)
+                        bounds.pop(idx)
+            validities = [check_tile_validity(self.complex_roi, dataset, BoundingBox(*hit.bounds), extraction_size, self.thresh) for hit in hits]
+
+        print("Time taken to check validity: ", time.time()-start)
+
+        for hit in self.index.intersection(tuple(self.roi), objects=True):
+            bounds = BoundingBox(*hit.bounds)
+            
+
+            if complex_roi is not None:
+                
+                #find bound in unique bounds
+                idx = unique_bounds.index(bounds)
+                validity = validities[idx]
+
+            if validity:
+                if (
+                    bounds.maxx - bounds.minx >= self.size[1]
+                    and bounds.maxy - bounds.miny >= self.size[0]
+                ):
+                    if bounds.area > 0:
+                        rows, cols = tile_to_chips(bounds, self.size)
+                        self.length += rows * cols
+                    else:
+                        self.length += 1
+                    self.hits.append(hit)
+                    areas.append(bounds.area)
+  
+        if length is not None:
+            self.length = length
+
+        # torch.multinomial requires float probabilities > 0
+        self.areas = torch.tensor(areas, dtype=torch.float)
+        if torch.sum(self.areas) == 0:
+            self.areas += 1
+
+    def __iter__(self) -> Iterator[BoundingBox]:
+        """Return the index of a dataset.
+
+        Returns:
+            (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+        """
+        print(len(self.areas))
+        print(len(self.hits))
+        for _ in range(len(self)):
+
+            valid_indices = []
+
+            while len(valid_indices) == 0:
+
+                # Choose a random tile, weighted by area
+                
+                idx = torch.multinomial(self.areas, 1)
+                hit = self.hits[idx]
+                bounds = BoundingBox(*hit.bounds)
+
+                if self.complex_roi is None:
+                    # Choose a random index within that tile
+                    bounding_box = get_random_bounding_box(bounds, self.size, self.res)
+                    valid_indices = [0]
+
+                    yield bounding_box
+                
+                else:
+
+                    extraction_size = (int(self.size[0]/self.res),int(self.size[1]/self.res) ) if self.units == Units.PIXELS else (int(self.size[0]),int(self.size[1]))
+                    valid_indices = extract_valid_bboxes(self.complex_roi, self.dataset, bounds,extraction_size, resample=self.resample,tolerance = self.thresh)
+                    if len(valid_indices) > 0:
+                        idx = torch.randint(0, len(valid_indices), (1,)).item()
+                        bounding_box = image_coordinates_to_geocoordinates(valid_indices[idx][1], valid_indices[idx][0], self, bounds, extraction_size)
+                        yield bounding_box
+                    else:
+                        print("No valid indices found, removing tile from list")
+                        #remove all hits with the same bounds
+                        indices = [i for i, hit in enumerate(self.hits) if BoundingBox(*hit.bounds) == bounds]
+                        for idx in sorted(indices, reverse=True):
+                            self.hits.pop(idx)
+                        self.areas = torch.tensor([area for i, area in enumerate(self.areas) if i not in indices], dtype=torch.float)
+
+
+            yield bounding_box
+
+    def __len__(self) -> int:
+        """Return the number of samples in a single epoch.
+
+        Returns:
+            length of the epoch
+        """
+        return self.length
 
 
 class RandomGeoPointSampler(GeoSampler):
@@ -165,15 +343,22 @@ class RandomGeoPointSampler(GeoSampler):
         size: tuple[float, float] | float,
         length: int | None = None,
         roi: BoundingBox | None = None,
+        complex_roi: str | None = None,
         units: Units = Units.PIXELS,
         centered: bool = False,
+        resample: int = 1,
+        thresh: float = 0.8,
     ) -> None:
         super().__init__(point_dataset, roi)
 
         self.res = scene_dataset.res
+        self.scene_dataset = scene_dataset
 
         self.size = _to_tuple(size)
         self.centered = centered
+        self.resample = resample
+        self.thresh = thresh
+        self.units = units
 
         # bbox size wrt res and pixel size
         if units == Units.PIXELS:
@@ -182,11 +367,19 @@ class RandomGeoPointSampler(GeoSampler):
         # list all points that can potentially be sampled
         self.hits = list(self.index.intersection(self.index.bounds, objects=True))
 
+        # filter out points that are not within the complex ROI
+        if complex_roi is not None: 
+            self.complex_roi = rasterio.open(complex_roi)
+
+            valid_indices = extract_valid_tiles(self.complex_roi, self, self.centered, self.hits, int(self.size[0]//self.res), self.thresh)
+            self.hits = [self.hits[i] for i in valid_indices]
+
         if length is not None:
             self.length = length
         else:
             self.length = len(self.hits)
 
+        
     def __len__(self) -> int:
         """Return the number of samples in a single epoch.
 
@@ -204,26 +397,45 @@ class RandomGeoPointSampler(GeoSampler):
         """
         
         for _ in range(len(self)):
-            # Choose a random tile, #TODO: here goes weighted random sampler approach but we need to know order of points for that
-            idx = torch.randint(0, len(self.hits), (1,)).item()
-            hit = self.hits[idx]
-            bounds = BoundingBox(*hit.bounds)
 
-            extent = 2 if self.centered else 1
+            valid_indices = []
 
-            bounds = BoundingBox(
-                bounds.minx - self.size[1] / extent,
-                bounds.maxx + self.size[1] / extent,
-                bounds.miny - self.size[0] / extent,
-                bounds.maxy + self.size[0] / extent,
-                bounds.mint,
-                bounds.maxt,
-            )
+            while len(valid_indices) == 0:
+    
+                idx = torch.randint(0, len(self.hits), (1,)).item()
+                hit = self.hits[idx]
 
-            # Choose a random index within that tile
-            bounding_box = get_random_bounding_box(bounds, self.size, self.res)
+                bounds = BoundingBox(*hit.bounds)
 
-            yield bounding_box
+                extent = 2 if self.centered else 1
+
+
+                bounds = BoundingBox(
+                    bounds.minx - ((self.size[1] / extent)),
+                    bounds.maxx + ((self.size[1] / extent)),
+                    bounds.miny - ((self.size[0] / extent)),
+                    bounds.maxy + ((self.size[0] / extent)),
+                    bounds.mint,
+                    bounds.maxt,
+                )
+
+
+                if self.complex_roi is None or self.centered:
+                    bounding_box = get_random_bounding_box(bounds, self.size, self.res)
+                    valid_indices = [0]
+
+                    yield bounding_box
+
+                else: 
+                    extraction_size = (int(self.size[0]/self.res),int(self.size[1]/self.res) ) if self.units == Units.PIXELS else (int(self.size[0]),int(self.size[1]))
+                    valid_indices = extract_valid_bboxes(self.complex_roi, self, bounds,extraction_size, resample=self.resample,tolerance = self.thresh)
+                    if len(valid_indices) > 0:
+                        idx = torch.randint(0, len(valid_indices), (1,)).item()
+                        bounding_box = image_coordinates_to_geocoordinates(valid_indices[idx][1], valid_indices[idx][0], self, bounds, extraction_size)
+                        yield bounding_box
+                    else: 
+                        print("No valid indices found, removing point from list")
+                        self.hits.pop(idx)
 
 
 class GridGeoSampler(GeoSampler):

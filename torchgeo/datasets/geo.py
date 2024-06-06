@@ -326,87 +326,148 @@ class GeoDataset(Dataset[dict[str, Any]], abc.ABC):
 class PointDataset(GeoDataset):
     """Abstract base class for datasets containing point data."""
 
+    #: As can be constructed from dataset columns
+    date_format = "%Y%m%d"
+
+    #: Names of all metadata variables in the dataset
+    all_metadata_columns: list[str] = []
+
+    #: Names of all location variables in the dataset, used for tree indexing. Expected order: lon, lat
+    location_columns: list[str] = []
+
+    #: Names of all time variables in the dataset, used for tree indexing
+    time_columns: list[str] = []
+
     def __init__(
         self,
         paths: str | Iterable[str] = "data",
         crs: CRS | None = None,
         res: float | None = None,
-        bands: Sequence[str] | None = None,
+        metadata_columns: Sequence[str] | None = None,
+        location_columns: Sequence[str] | None = None,
+        time_columns: Sequence[str] | None = None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
+
+        """Initialize a new PointDataset instance.
+
+        Args:
+            paths: one or more root directories to search or files to load
+            crs: :term:`coordinate reference system (CRS)` to warp to
+                (defaults to the CRS of the first file found)
+            res: resolution of the dataset in units of CRS
+                (defaults to the resolution of the first file found)
+            columns: columns to return (defaults to all bands)
+            transforms: a function/transform that takes an input sample
+                and returns a transformed version
+            cache: if True, cache file handle to speed up repeated sampling
+
+        Raises:
+            DatasetNotFoundError: If dataset is not found.
+        """
         super().__init__(transforms)
 
+        self.paths = paths
+        self.metadata_columns = metadata_columns or self.all_metadata_columns
+        self.location_columns = location_columns or self.location_columns
+        self.time_columns = time_columns or self.time_columns
+        self.cache = cache
 
-        # Convert from pandas DataFrame to rtree Index
+        # Prepare dataframe
+
+        files = glob.glob(os.path.join(paths[0], '**.csv'))
+        if not files:
+            raise DatasetNotFoundError(self)
+        
+        data = pd.read_table(
+            files[0], #TODO: what if data is in multiple files and only some columns align?
+            engine="c",
+            usecols=self.metadata_columns + self.location_columns + self.time_columns,
+            sep=";",
+            nrows=1000, #TODO: work in progress 
+        )
+        data = (
+            data.groupby(self.location_columns + self.time_columns)
+            .agg({col: lambda x: list(x) for col in self.metadata_columns})
+            .reset_index()
+        ) #TODO: move this to pre_processing maybe?
+        self.data = data[self.location_columns + self.time_columns + self.metadata_columns]
+
+
+        # Populate the dataset index
         i = 0
-        for y,x,dayOfYear,year, *speciesId in self.data.itertuples(index=False, name=None):
+        for values in self.data.itertuples(index=False, name=None):
 
-            speciesId = speciesId[0] if not self.prediction else [] # variable missing in prediction mode
+            location = values[: len(self.location_columns)]
+            time = map(str, values[len(self.location_columns) : len(self.location_columns) + len(self.time_columns)])
+            metadata = values[len(self.location_columns) + len(self.time_columns) :]
 
-            if not pd.isna(dayOfYear) and not pd.isna(year):
-                mint, maxt = disambiguate_timestamp(
-                    "-".join((str(dayOfYear), str(year))), "%j-%Y"
-                )
-            else:
+            #check if nan in time
+            try:
+                mint, maxt = disambiguate_timestamp("-".join(time), self.date_format)
+            except:
+                print(f"Error in time: {time}. Using mint=0 and maxt=sys.maxsize")
                 mint, maxt = 0, sys.maxsize
 
-            coords = (x, x, y, y, mint, maxt)
-            self.index.insert(
-                i, coords, speciesId
-            )  # insert into r-tree with speciesId as object
+            coords = (location[0], location[0], location[1], location[1], mint, maxt)
+
+            if len(self.metadata_columns) > 0:
+                self.index.insert(
+                    i, coords, 
+                    {col: value for col, value in zip(self.metadata_columns, metadata)},
+                )
+            else:
+                self.index.insert(i, coords)
+
             i += 1
 
-
+        if i == 0:
+            raise DatasetNotFoundError(self)
+        
+        self._crs = cast(CRS, crs)
+        self._res = cast(float, res)
 
     def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
-        """Retrieve metadata indexed by query.
+        """Retrieve location/labels and metadata indexed by query.
 
         Args:
             query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
 
         Returns:
-            sample of metadata at that index
+            sample of location/labels and metadata at that index
 
-        Raises:
-            IndexError: if query is not found in the index
         """
-        # if center only look for one point near center
-        if query.area > 0 and self.single_instance and self.centered:
-            center = query.center
-            hits = list(self.index.nearest(tuple(center), 1, objects=True))
-        else:
-            hits = list(self.index.intersection(tuple(query), objects=True))
 
-        # allow nodata returns (base case)
+        hits = list(self.index.intersection(tuple(query), objects=True))
         if len(hits) == 0:
-            bboxes, labels, location = [], [], []
+            bboxes, pixel_coords = None, None
+            metadata = {col: None for col in self.metadata_columns}
+            location = [[query.center.minx, query.center.miny]]
+
         else:
-            bboxes, labels = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))
-            bboxes = [BoundingBox(*bbox) for bbox in bboxes]            
-            pixel_coords = [[math.ceil(round((bbox.minx-query.minx)/self.res,10))-1, math.ceil(round((bbox.miny-query.miny)/self.res,10))-1] for bbox in bboxes]
+            bboxes, metadata = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))
+            metadata = {col: [m[col] for m in metadata] for col in self.metadata_columns}
+            bboxes = [BoundingBox(*bbox) for bbox in bboxes]   
             location = [[bbox.minx, bbox.miny] for bbox in bboxes]   
 
-            # if single instance, pick random location
-            if query.area > 0 and self.single_instance and not self.centered:
-                idx = np.random.randint(0, len(bboxes))
-                bboxes = [bboxes[idx]]
-                labels = [labels[idx]]
-                pixel_coords = [pixel_coords[idx]]
+            if self.res > 0:
+                query_width = round((query.maxx - query.minx)/self.res)
+                query_height = round((query.maxy - query.miny)/self.res)
+                pixel_coords = [[min(query_width-1, int((bbox.minx-query.minx)//self.res)), min(query_height-1,int((bbox.miny-query.miny)//self.res))] for bbox in bboxes]
 
-            # location transforms
             if self.transforms is not None:     
                 location = [self.transforms(loc) for loc in location]
-            
-        # return not only metadata but also encoded location and label (speciesId)
+
         sample = {
             "crs": self.crs,
             "bbox": bboxes,
-            "label": labels,
             "location": location,
             "pixel_coords": pixel_coords,
+            "label": metadata,
         }
         return sample
+
 
 
 class RasterDataset(GeoDataset):
