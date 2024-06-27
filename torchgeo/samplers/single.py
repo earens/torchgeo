@@ -212,8 +212,9 @@ class ExtendedRandomGeoSampler(GeoSampler):
         self.thresh = thresh
         self.units = units
         self.dataset = dataset
+        self.complex_roi = complex_roi
 
-        if complex_roi is not None:
+        if self.complex_roi is not None:
             self.complex_roi = rasterio.open(complex_roi)
 
         if units == Units.PIXELS:
@@ -226,10 +227,9 @@ class ExtendedRandomGeoSampler(GeoSampler):
         extraction_size = (int(self.size[0]/self.res),int(self.size[1]/self.res) ) if self.units == Units.PIXELS else (int(self.size[0]),int(self.size[1]))
         
         start = time.time()
-        if complex_roi is not None:
+        if self.complex_roi is not None:
             #find indices of duplicate bounds in hits
             hits = [hit for hit in self.index.intersection(tuple(self.roi), objects=True)]
-            print(len(hits))
             bounds = [BoundingBox(*hit.bounds) for hit in hits]
             unique_bounds = list(set(bounds))
 
@@ -251,7 +251,7 @@ class ExtendedRandomGeoSampler(GeoSampler):
             bounds = BoundingBox(*hit.bounds)
             
 
-            if complex_roi is not None:
+            if self.complex_roi is not None:
                 
                 #find bound in unique bounds
                 idx = unique_bounds.index(bounds)
@@ -284,8 +284,6 @@ class ExtendedRandomGeoSampler(GeoSampler):
         Returns:
             (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
         """
-        print(len(self.areas))
-        print(len(self.hits))
         for _ in range(len(self)):
 
             valid_indices = []
@@ -359,6 +357,7 @@ class RandomGeoPointSampler(GeoSampler):
         self.resample = resample
         self.thresh = thresh
         self.units = units
+        self.complex_roi = complex_roi
 
         # bbox size wrt res and pixel size
         if units == Units.PIXELS:
@@ -370,7 +369,6 @@ class RandomGeoPointSampler(GeoSampler):
         # filter out points that are not within the complex ROI
         if complex_roi is not None: 
             self.complex_roi = rasterio.open(complex_roi)
-
             valid_indices = extract_valid_tiles(self.complex_roi, self, self.centered, self.hits, int(self.size[0]//self.res), self.thresh)
             self.hits = [self.hits[i] for i in valid_indices]
 

@@ -369,7 +369,7 @@ class PointDataset(GeoDataset):
         super().__init__(transforms)
 
         self.paths = paths
-        self.metadata_columns = metadata_columns or self.all_metadata_columns
+        self.metadata_columns = metadata_columns or []
         self.location_columns = location_columns or self.location_columns
         self.time_columns = time_columns or self.time_columns
         self.cache = cache
@@ -387,13 +387,13 @@ class PointDataset(GeoDataset):
             sep=";",
             nrows=1000, #TODO: work in progress 
         )
-        data = (
-            data.groupby(self.location_columns + self.time_columns)
-            .agg({col: lambda x: list(x) for col in self.metadata_columns})
-            .reset_index()
-        ) #TODO: move this to pre_processing maybe?
+        if len(self.metadata_columns) > 0:
+            data = (
+                data.groupby(self.location_columns + self.time_columns)
+                .agg({col: lambda x: list(x) for col in self.metadata_columns})
+                .reset_index()
+            ) #TODO: move this to pre_processing maybe?
         self.data = data[self.location_columns + self.time_columns + self.metadata_columns]
-
 
         # Populate the dataset index
         i = 0
@@ -441,9 +441,14 @@ class PointDataset(GeoDataset):
 
         hits = list(self.index.intersection(tuple(query), objects=True))
         if len(hits) == 0:
-            bboxes, pixel_coords = None, None
-            metadata = {col: None for col in self.metadata_columns}
             location = [[query.center.minx, query.center.miny]]
+         
+
+            sample = {
+                "crs": self.crs,
+                "location": location,
+            }
+            return sample
 
         else:
             bboxes, metadata = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))
@@ -456,16 +461,18 @@ class PointDataset(GeoDataset):
                 query_height = round((query.maxy - query.miny)/self.res)
                 pixel_coords = [[min(query_width-1, int((bbox.minx-query.minx)//self.res)), min(query_height-1,int((bbox.miny-query.miny)//self.res))] for bbox in bboxes]
 
-            if self.transforms is not None:     
-                location = [self.transforms(loc) for loc in location]
-
+        #TODO metadata transforms
+        
         sample = {
             "crs": self.crs,
-            "bbox": bboxes,
+            "bbox": query,
+            "bboxes": bboxes,
             "location": location,
             "pixel_coords": pixel_coords,
             "label": metadata,
         }
+
+
         return sample
 
 

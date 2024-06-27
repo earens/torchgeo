@@ -483,8 +483,6 @@ class BoundingBox:
         x = index % width
         y = index // width
 
-        print(x, y)
-
         #convert x and y to coordinates depending on stride
 
         minx = self.minx + x* stride * res
@@ -648,6 +646,8 @@ def _list_dict_to_dict_list(samples: Iterable[dict[Any, Any]]) -> dict[Any, list
     for sample in samples:
         for key, value in sample.items():
             collated[key].append(value)
+
+  
     return collated
 
 
@@ -706,11 +706,14 @@ def concat_samples(samples: Iterable[dict[Any, Any]]) -> dict[Any, Any]:
     .. versionadded:: 0.2
     """
     collated: dict[Any, Any] = _list_dict_to_dict_list(samples)
+
     for key, value in collated.items():
         if isinstance(value[0], Tensor):
             collated[key] = torch.cat(value)
         else:
             collated[key] = value[0]
+
+
     return collated
 
 

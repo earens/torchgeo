@@ -54,7 +54,7 @@ class GLC23(PointDataset):
         paths: str = "data",
         crs: CRS | None = None,
         res: float = 0,        
-        metadata_columns: Sequence[str] = ["speciesId"],
+        metadata_columns: Sequence[str] | None  = ["speciesId"],
         location_columns: Sequence[str] = ["lon", "lat"],
         time_columns: Sequence[str] = ["dayOfYear", "year"],
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -75,16 +75,17 @@ class GLC23(PointDataset):
                 and returns a transformed version
             cache: if True, cache file handle to speed up repeated sampling
         """
+        if metadata_columns is not None:
+            assert len(metadata_columns) == len(set(metadata_columns)), "Metadata columns must be unique"
+            for metadata_column in metadata_columns:
+                assert metadata_column in self.all_metadata_columns, f"Metadata column {metadata_column} not found in dataset"
 
-        assert len(metadata_columns) == len(set(metadata_columns)), "Metadata columns must be unique"
         assert len(location_columns) == len(set(location_columns)), "Location columns must be unique"
-        assert len(time_columns) == len(set(time_columns)), "Time columns must be unique"
-
-
-        for metadata_column in metadata_columns:
-            assert metadata_column in self.all_metadata_columns, f"Metadata column {metadata_column} not found in dataset"
         for location_column in location_columns:
             assert location_column in self.all_metadata_columns, f"Location column {location_column} not found in dataset"
+
+
+        assert len(time_columns) == len(set(time_columns)), "Time columns must be unique"        
         for time_column in time_columns:
             assert time_column in self.all_metadata_columns, f"Time column {time_column} not found in dataset"
 

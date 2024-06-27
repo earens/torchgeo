@@ -11,6 +11,7 @@ from .single import (
     PreChippedGeoSampler,
     RandomGeoPointSampler,
     RandomGeoSampler,
+    ExtendedRandomGeoSampler
 )
 from .utils import get_random_bounding_box, tile_to_chips
 
@@ -20,6 +21,7 @@ __all__ = (
     "PreChippedGeoSampler",
     "RandomGeoSampler",
     "RandomGeoPointSampler",
+    "ExtendedRandomGeoSampler",
     # Batch samplers
     "RandomBatchGeoSampler",
     # Base classes

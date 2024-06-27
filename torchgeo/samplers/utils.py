@@ -173,6 +173,13 @@ def extract_valid_bboxes(complex_roi: rasterio.DatasetReader, dataset: Intersect
     """
     size = _to_tuple(size)
 
+    #check if resmple factor is valid
+    if size[0]/resample < 1 or size[1]/resample < 1:
+        warnings.warn("Resample factor is too high. Setting to 1.")
+        resample = 1
+
+
+
     #complex roi should already be rasterio dataset
     res = dataset.res
 
