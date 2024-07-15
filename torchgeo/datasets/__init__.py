@@ -15,6 +15,7 @@ from .biomassters import BioMassters
 from .cbf import CanadianBuildingFootprints
 from .cdl import CDL
 from .chabud import ChaBuD
+from .chelsa import Chelsa
 from .chesapeake import (
     Chesapeake,
     Chesapeake7,
@@ -151,6 +152,7 @@ __all__ = (
     "Bioclim",
     "CanadianBuildingFootprints",
     "CDL",
+    "Chelsa",
     "Chesapeake",
     "Chesapeake7",
     "Chesapeake13",
