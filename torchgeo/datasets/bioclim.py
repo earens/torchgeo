@@ -25,27 +25,10 @@ class Bioclim(RasterDataset):
 
     filename_glob = "bio*.*"
 
-    filename_tiled_glob = "bio*_*_*.*"  
-
-    # filename_regex = r"""
-    #    (?P<type>\w+)
-    #    (?P<band>\d{1}|\d{2})
-    #    _(?P<start>\d{4})
-    #    _(?P<stop>\d{4})
-    #    \.
-    # """
-
     filename_regex = r"""
         (?P<type>\w{3})
         (?P<band>\d+)
-        \.
-    """
-
-    filename_tiled_regex = r"""
-        (?P<type>\w{3})
-        (?P<band>\d+)
-        _(?P<tile_x>\d+)
-        _(?P<tile_y>\d+)
+        (?P<tile>_\d+)? #optional tile number
         \.
     """
 
@@ -79,7 +62,6 @@ class Bioclim(RasterDataset):
         crs: CRS | None = None,
         res: float | None = None,
         bands: Sequence[str] = None,
-        tile: bool = False,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
@@ -112,36 +94,5 @@ class Bioclim(RasterDataset):
             assert band in self.all_bands, f"invalid band '{band}'"
 
         self.filename_glob = self.filename_glob.format(bands[0])
-       
-
-        #check if data is tiled
-        if tile:
-            filename_tiled_regex = re.compile(self.filename_tiled_regex, re.VERBOSE)
-            matches = [re.match(filename_tiled_regex, os.path.basename(filepath)) for filepath in glob.glob(f"{paths[0]}*.tif")]
-            #if all None, then the data is not tiled
-            if all(match is None for match in matches):
-                #tile the data
-                for path in paths:
-                    tile_tif(path,path, 1024)
-            
-            self.filename_regex = self.filename_tiled_regex
-            self.filename_glob = self.filename_tiled_glob
-        
-
-        """
-        #check if the file name is in the correct format, if not rename the file
-        filename_regex = re.compile(self.filename_regex, re.VERBOSE)
-        self.paths = paths
-        for i, filepath in enumerate(self.files):
-     
-            match = re.match(filename_regex, os.path.basename(filepath))
-            #if match none, rename the file
-            if match is None:
-                #rename the file
-                new_file_name = os.path.basename(filepath)[:-4]+ "_1981_2010.tif" #add the correct time range
-                os.rename(filepath, os.path.join(os.path.dirname(filepath), new_file_name))  
-                self.paths[i] = os.path.join(os.path.dirname(filepath), new_file_name)
-
-        """
 
         super().__init__(paths, crs, res, bands, transforms, cache)

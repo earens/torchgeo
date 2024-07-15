@@ -11,7 +11,7 @@ import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any, cast
+from typing import Any, cast, Union
 
 import fiona
 import fiona.transform
@@ -30,6 +30,7 @@ from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 from torchvision.datasets.folder import default_loader as pil_loader
 import pandas as pd
+from tqdm import tqdm
 
 import math
 
@@ -340,7 +341,7 @@ class PointDataset(GeoDataset):
 
     def __init__(
         self,
-        paths: str | Iterable[str] = "data",
+        paths: Union[str, Iterable[str]] = "data",
         crs: CRS | None = None,
         res: float | None = None,
         metadata_columns: Sequence[str] | None = None,
@@ -376,16 +377,17 @@ class PointDataset(GeoDataset):
 
         # Prepare dataframe
 
-        files = glob.glob(os.path.join(paths[0], '**.csv'))
+        files = glob.glob(os.path.join(paths, '**.csv'))
         if not files:
             raise DatasetNotFoundError(self)
         
+        print("Indexing dataset.This may take a while...")
         data = pd.read_table(
             files[0], #TODO: what if data is in multiple files and only some columns align?
             engine="c",
             usecols=self.metadata_columns + self.location_columns + self.time_columns,
             sep=";",
-            nrows=1000, #TODO: work in progress 
+            nrows=1000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
         )
         if len(self.metadata_columns) > 0:
             data = (
@@ -397,7 +399,7 @@ class PointDataset(GeoDataset):
 
         # Populate the dataset index
         i = 0
-        for values in self.data.itertuples(index=False, name=None):
+        for values in tqdm(self.data.itertuples(index=False, name=None), total=len(self.data)):
 
             location = values[: len(self.location_columns)]
             time = map(str, values[len(self.location_columns) : len(self.location_columns) + len(self.time_columns)])
@@ -471,7 +473,6 @@ class PointDataset(GeoDataset):
             "pixel_coords": pixel_coords,
             "label": metadata,
         }
-
 
         return sample
 
