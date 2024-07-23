@@ -51,6 +51,7 @@ from .gbif import GBIF
 from .geo import (
     GeoDataset,
     IntersectionDataset,
+    IntersectionPointPredictorsDataset,
     NonGeoClassificationDataset,
     NonGeoDataset,
     RasterDataset,

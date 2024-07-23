@@ -13,7 +13,7 @@ import time
 import rasterio
 from rasterio.crs import CRS
 from rasterio.vrt import WarpedVRT
-
+from tqdm import tqdm
 import scipy
 import numpy as np
 
@@ -272,8 +272,7 @@ def extract_valid_tiles(
         y_offset = size[0]/2*res
     
     bounds = [(BoundingBox(*hit.bounds).minx-x_offset, BoundingBox(*hit.bounds).miny-y_offset, BoundingBox(*hit.bounds).maxx+x_offset, BoundingBox(*hit.bounds).maxy+y_offset) for hit in hits]
-    valid_tiles = [i for i, bound in enumerate(bounds) if (rasterio.merge.merge([complex_roi], bounds=bound, res=res)[0] > 0).astype(np.int8).sum()/(size[0]*size[1]) >= tolerance]
-        
+    valid_tiles = [i for i, bound in tqdm(enumerate(bounds), total=len(bounds)) if (rasterio.merge.merge([complex_roi], bounds=bound, res=res)[0] > 0).astype(np.int8).sum()/(size[0]*size[1]) >= tolerance]
     return valid_tiles
 
 def check_tile_validity(complex_roi: rasterio.DatasetReader, dataset: RasterDataset, bounds: BoundingBox, size: int | tuple[int, int] = 1, tolerance: float = 0.8) -> bool:

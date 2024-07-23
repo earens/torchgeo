@@ -23,36 +23,22 @@ class Chelsa(RasterDataset):
     TODO: add more details about the dataset
     """
 
-    filename_glob = "bio*.*"
+    filename_glob = "*.tif"
 
     filename_regex = r"""
-        (?P<type>\w{3})
-        (?P<band>\d+)
+        (?P<month>\d{2})
+        _(?P<year>\d{4})
+        _(?P<band>[a-zA-Z]+) 
         (?P<tile>_\d+)? #optional tile number
         \.
     """
 
-    date_format = "%Y"
+    date_format = "%m%Y"
     all_bands = [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-        "15",
-        "16",
-        "17",
-        "18",
-        "19",
+        "pr",
+        "tas",
+        "tasmax",
+        "tasmin",
     ]
     separate_files = True
 

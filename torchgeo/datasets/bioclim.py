@@ -63,7 +63,7 @@ class Bioclim(RasterDataset):
         res: float | None = None,
         bands: Sequence[str] = None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-        cache: bool = True,
+        cache: bool = False,
     ) -> None:
         """Initialize a new Dataset instance.
 

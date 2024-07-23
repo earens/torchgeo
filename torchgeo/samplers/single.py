@@ -367,11 +367,13 @@ class RandomGeoPointSampler(GeoSampler):
         self.hits = list(self.index.intersection(self.index.bounds, objects=True))
 
         # filter out points that are not within the complex ROI
+        # TODO: speed up this process
+        
         if complex_roi is not None: 
             self.complex_roi = rasterio.open(complex_roi)
             valid_indices = extract_valid_tiles(self.complex_roi, self, self.centered, self.hits, int(self.size[0]//self.res), self.thresh)
             self.hits = [self.hits[i] for i in valid_indices]
-
+        
         if length is not None:
             self.length = length
         else:
