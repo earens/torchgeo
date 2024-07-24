@@ -400,7 +400,7 @@ class PointDataset(GeoDataset):
             engine="c",
             usecols=self.metadata_columns + self.location_columns + self.time_columns,
             sep=";",
-            nrows=100000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
+            #nrows=1000000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
             converters=converters,
         )
 
@@ -581,6 +581,7 @@ class RasterDataset(GeoDataset):
         crs: CRS | None = None,
         res: float | None = None,
         bands: Sequence[str] | None = None,
+        insert_band: str = None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
@@ -605,16 +606,24 @@ class RasterDataset(GeoDataset):
         """
         super().__init__(transforms)
 
+
         self.paths = paths
         self.bands = bands or self.all_bands
         self.cache = cache
+        self.insert_band = insert_band
+    
+        #if data has been pre_transformed into one file 
+        if self.insert_band is None:
+            self.insert_band = self.bands[0]
+        else:
+            self.insert_band = "_all"
+            self.separate_files = False
 
         # Populate the dataset index
         i = 0
         filename_regex = re.compile(self.filename_regex, re.VERBOSE)
         unique_files = []
 
-        insert_band = self.bands[0]
         #for each file, change the band name in the filename to the first band in the list
         for i, filepath in enumerate(self.files):
             match = re.match(filename_regex, os.path.basename(filepath))
@@ -626,7 +635,7 @@ class RasterDataset(GeoDataset):
                 insert_filepath = os.path.join(os.path.dirname(filepath), filename)
                 unique_files.append(insert_filepath)
         unique_files = list(set(unique_files))
-
+        
         for filepath in unique_files:
             match = re.match(filename_regex, os.path.basename(filepath))
             if match is not None:

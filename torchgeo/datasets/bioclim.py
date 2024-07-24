@@ -23,11 +23,11 @@ class Bioclim(RasterDataset):
     TODO: add more details about the dataset
     """
 
-    filename_glob = "bio*.*"
+    filename_glob = "*bio*.*"
 
     filename_regex = r"""
-        (?P<type>\w{3})
-        (?P<band>\d+)
+        (?P<type>(\d+)?\w{3})
+        (?P<band>(\d+|_all)) 
         (?P<tile>_\d+)? #optional tile number
         \.
     """
@@ -62,6 +62,7 @@ class Bioclim(RasterDataset):
         crs: CRS | None = None,
         res: float | None = None,
         bands: Sequence[str] = None,
+        insert_band: str = None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = False,
     ) -> None:
@@ -95,4 +96,4 @@ class Bioclim(RasterDataset):
 
         self.filename_glob = self.filename_glob.format(bands[0])
 
-        super().__init__(paths, crs, res, bands, transforms, cache)
+        super().__init__(paths, crs, res, bands, insert_band, transforms, cache)
