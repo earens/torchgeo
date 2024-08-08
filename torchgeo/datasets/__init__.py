@@ -131,6 +131,7 @@ from .ucmerced import UCMerced
 from .usavars import USAVars
 from .utils import (
     BoundingBox,
+    ExtendedBoundingBox,
     DatasetNotFoundError,
     RGBBandsMissingError,
     concat_samples,

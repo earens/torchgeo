@@ -14,7 +14,6 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.vrt import WarpedVRT
 from tqdm import tqdm
-import scipy
 import numpy as np
 
 from ..datasets import BoundingBox
@@ -192,6 +191,7 @@ def extract_valid_bboxes(complex_roi: rasterio.DatasetReader, dataset: Intersect
         x_offset,y_offset = 0,0
 
     extraction_bounds = (bounds.minx-x_offset, bounds.miny-y_offset, bounds.maxx+x_offset, bounds.maxy+y_offset)
+    start = time.time()
     crop, _ = rasterio.merge.merge([complex_roi], bounds=extraction_bounds, res=res)
     crop = (crop > 0).astype(np.int8)
 
@@ -272,6 +272,7 @@ def extract_valid_tiles(
         y_offset = size[0]/2*res
     
     bounds = [(BoundingBox(*hit.bounds).minx-x_offset, BoundingBox(*hit.bounds).miny-y_offset, BoundingBox(*hit.bounds).maxx+x_offset, BoundingBox(*hit.bounds).maxy+y_offset) for hit in hits]
+    print("Extracting valid tiles")
     valid_tiles = [i for i, bound in tqdm(enumerate(bounds), total=len(bounds)) if (rasterio.merge.merge([complex_roi], bounds=bound, res=res)[0] > 0).astype(np.int8).sum()/(size[0]*size[1]) >= tolerance]
     return valid_tiles
 

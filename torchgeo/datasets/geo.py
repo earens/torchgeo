@@ -400,7 +400,7 @@ class PointDataset(GeoDataset):
             engine="c",
             usecols=self.metadata_columns + self.location_columns + self.time_columns,
             sep=";",
-            #nrows=1000000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
+            #nrows=10000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
             converters=converters,
         )
 
@@ -464,6 +464,16 @@ class PointDataset(GeoDataset):
             sample of location/labels and metadata at that index
 
         """
+        center = query.center
+        
+        center = BoundingBox(
+            round(center.minx, 6),
+            round(center.maxx, 6),
+            round(center.miny, 6),
+            round(center.maxy, 6),
+            center.mint,
+            center.maxt,
+        )
         hits = list(self.index.intersection(tuple(query), objects=True))
         if len(hits) == 0:
             location = [[query.center.minx, query.center.miny]]
@@ -472,20 +482,18 @@ class PointDataset(GeoDataset):
             sample = {
                 "crs": self.crs,
                 "location": location,
+                "center": [[center.minx, center.miny]]
             }
             return sample
 
         else:
-            center = query.center
+            
             bboxes, metadata = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))        
-            bboxes = [BoundingBox(*bbox) for bbox in bboxes]   
-            centered = list(self.index.nearest((center.minx, center.maxx, center.miny, center.maxy, center.mint, center.maxt), 1, objects=True))
-            centered = [BoundingBox(*hit.bounds) for hit in centered][0]
-            centered = [(bbox == centered)*1 for bbox in bboxes]
+            bboxes = [BoundingBox(*bbox) for bbox in bboxes]  
+           
+            centered = [(bbox == center)*1 for bbox in bboxes]
             center = [[center.minx, center.miny]]
-
             location = [[bbox.minx, bbox.miny] for bbox in bboxes]   
-
             metadata = {col: [m[col] for m in metadata] for col in self.metadata_columns}            
 
             if self.res > 0:
@@ -505,7 +513,6 @@ class PointDataset(GeoDataset):
             "centered": centered,
             "center": center
         }
-
 
         return sample
 
@@ -570,6 +577,7 @@ class RasterDataset(GeoDataset):
 
         .. versionadded:: 0.5
         """
+        
         if self.is_image:
             return torch.float32
         else:
@@ -613,9 +621,9 @@ class RasterDataset(GeoDataset):
         self.insert_band = insert_band
     
         #if data has been pre_transformed into one file 
-        if self.insert_band is None:
+        if self.insert_band is None and len(self.bands) > 0:
             self.insert_band = self.bands[0]
-        else:
+        elif len(self.bands) > 0:
             self.insert_band = "_all"
             self.separate_files = False
 
@@ -625,16 +633,19 @@ class RasterDataset(GeoDataset):
         unique_files = []
 
         #for each file, change the band name in the filename to the first band in the list
-        for i, filepath in enumerate(self.files):
-            match = re.match(filename_regex, os.path.basename(filepath))
-            if match is not None:
-                start = match.start("band")
-                end = match.end("band")
-                filename = os.path.basename(filepath)
-                filename = filename[:start] + insert_band + filename[end:]
-                insert_filepath = os.path.join(os.path.dirname(filepath), filename)
-                unique_files.append(insert_filepath)
-        unique_files = list(set(unique_files))
+        if self.insert_band is not None:
+            for i, filepath in enumerate(self.files):
+                match = re.match(filename_regex, os.path.basename(filepath))
+                if match is not None:
+                    start = match.start("band")
+                    end = match.end("band")
+                    filename = os.path.basename(filepath)
+                    filename = filename[:start] + self.insert_band + filename[end:]
+                    insert_filepath = os.path.join(os.path.dirname(filepath), filename)
+                    unique_files.append(insert_filepath)
+            unique_files = list(set(unique_files))
+        else:
+            unique_files = self.files
         
         for filepath in unique_files:
             match = re.match(filename_regex, os.path.basename(filepath))
@@ -1149,10 +1160,6 @@ class IntersectionPointPredictorsDataset(GeoDataset):
         super().__init__(transforms)
         self.datasets = [raster_dataset, point_dataset]
         self.collate_fn = collate_fn
-
-        for ds in self.datasets:
-            if not isinstance(ds, GeoDataset):
-                raise ValueError("IntersectionPointPredictorsDataset only supports GeoDatasets")
 
         self.crs = raster_dataset.crs
         self.res = raster_dataset.res

@@ -494,11 +494,6 @@ class BoundingBox:
         return BoundingBox(minx, maxx, miny, maxy, self.mint, self.maxt)
 
 
-
-        
-
-        
-
     def intersects(self, other: BoundingBox) -> bool:
         """Whether or not two bounding boxes intersect.
 
@@ -554,6 +549,37 @@ class BoundingBox:
             )
 
         return bbox1, bbox2
+    
+@dataclass(frozen=True)
+class ExtendedBoundingBox(BoundingBox):
+    """Extended BoundingBox class with additional methods.
+    """
+    # index of the point that triggered the query
+    idx: int
+
+    def __getitem__(self, key: int | slice) -> float | list[float]:
+        """Index the (minx, maxx, miny, maxy, mint, maxt, idx) tuple.
+
+        Args:
+            key: integer or slice object
+
+        Returns:
+            the value(s) at that index
+
+        Raises:
+            IndexError: if key is out of bounds
+        """
+        return [self.minx, self.maxx, self.miny, self.maxy, self.mint, self.maxt, self.idx][key]
+    
+    def __iter__(self) -> Iterator[float]:
+        """Container iterator.
+
+        Returns:
+            iterator object that iterates over all objects in the container
+        """
+        yield from [self.minx, self.maxx, self.miny, self.maxy, self.mint, self.maxt, self.idx]
+
+        
 
 
 def disambiguate_timestamp(date_str: str, format: str) -> tuple[float, float]:
