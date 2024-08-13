@@ -388,7 +388,7 @@ class RandomGeoPointSampler(GeoSampler):
 
         #uniform sampling if not specified differently
         if self.sampling_strategy == "random" and self.sampling_weights is None:
-            self.sampling_weights = list(torch.ones(len(self)))
+            self.sampling_weights = list(torch.ones(len(self.hits)))
 
         
     def __len__(self) -> int:
@@ -407,7 +407,7 @@ class RandomGeoPointSampler(GeoSampler):
 
         """
         if self.sampling_strategy == "random":
-            sampling_indices = list(torch.multinomial(torch.tensor(self.sampling_weights), len(self.hits), replacement=True))
+            sampling_indices = list(torch.multinomial(torch.tensor(self.sampling_weights), len(self.hits), replacement=False))
         else:
             sampling_indices = list(torch.randperm(len(self.hits)))
 
@@ -418,6 +418,7 @@ class RandomGeoPointSampler(GeoSampler):
             valid_indices = []
 
             while len(valid_indices) == 0:
+
     
                 hit = self.hits[idx]
                 bounds = BoundingBox(*hit.bounds)
@@ -434,6 +435,7 @@ class RandomGeoPointSampler(GeoSampler):
 
                 if self.complex_roi is None or self.centered:
                     bounding_box = get_random_bounding_box(bounds, self.size, self.res)
+                    bounding_box = ExtendedBoundingBox.from_bbox(bounding_box, id = hit.id)
                     valid_indices = [0]
 
                     yield bounding_box

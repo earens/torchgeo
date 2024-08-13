@@ -39,6 +39,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 from .utils import (
     BoundingBox,
+    ExtendedBoundingBox,
     DatasetNotFoundError,
     array_to_tensor,
     concat_samples,
@@ -400,7 +401,7 @@ class PointDataset(GeoDataset):
             engine="c",
             usecols=self.metadata_columns + self.location_columns + self.time_columns,
             sep=";",
-            #nrows=10000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
+            nrows=1000000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
             converters=converters,
         )
 
@@ -475,6 +476,7 @@ class PointDataset(GeoDataset):
             center.maxt,
         )
         hits = list(self.index.intersection(tuple(query), objects=True))
+
         if len(hits) == 0:
             location = [[query.center.minx, query.center.miny]]
          
@@ -494,12 +496,18 @@ class PointDataset(GeoDataset):
             centered = [(bbox == center)*1 for bbox in bboxes]
             center = [[center.minx, center.miny]]
             location = [[bbox.minx, bbox.miny] for bbox in bboxes]   
-            metadata = {col: [m[col] for m in metadata] for col in self.metadata_columns}            
+            metadata = {col: [m[col] for m in metadata] for col in self.metadata_columns}       
+            
+            #if id in query attributes
+            if isinstance(query, ExtendedBoundingBox):
+                id = [1 if hit.id == query.id else 0 for hit in hits] 
+            else:
+                id = [0]*len(bboxes)
 
             if self.res > 0:
                 query_width = round((query.maxx - query.minx)/self.res)
                 query_height = round((query.maxy - query.miny)/self.res)
-                pixel_coords = [[min(query_width-1, int((bbox.minx-query.minx)//self.res)), min(query_height-1,int((bbox.miny-query.miny)//self.res))] for bbox in bboxes]
+                pixel_coords = [[min(query_width-1, int((bbox.minx-query.minx)//self.res)), min(query_height-1,int(query_height - (bbox.miny-query.miny)//self.res))] for bbox in bboxes]
 
         #TODO metadata transforms
         
@@ -511,7 +519,8 @@ class PointDataset(GeoDataset):
             "pixel_coords": pixel_coords,
             "label": metadata,
             "centered": centered,
-            "center": center
+            "center": center,
+            "id": id
         }
 
         return sample
@@ -717,6 +726,7 @@ class RasterDataset(GeoDataset):
         Raises:
             IndexError: if query is not found in the index
         """
+        
         hits = self.index.intersection(tuple(query), objects=True)
         filepaths = cast(list[str], [hit.object for hit in hits])
 

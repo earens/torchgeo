@@ -130,8 +130,8 @@ def tile_to_chips(
     assert stride[0] > 0
     assert stride[1] > 0
 
-    rows = math.ceil((bounds.maxy - bounds.miny - size[0]) / stride[0]) + 1
-    cols = math.ceil((bounds.maxx - bounds.minx - size[1]) / stride[1]) + 1
+    rows = math.ceil((bounds.maxy - bounds.miny - size[0]) / stride[0]) #+ 1
+    cols = math.ceil((bounds.maxx - bounds.minx - size[1]) / stride[1]) #+ 1
 
     return rows, cols
 
