@@ -337,9 +337,9 @@ class RandomGeoPointSampler(GeoSampler):
 
     def __init__(
         self,
-        scene_dataset: GeoDataset,
-        point_dataset: Index,
+        dataset: Index,
         size: tuple[float, float] | float,
+        res: float = 1,
         length: int | None = None,
         roi: BoundingBox | None = None,
         complex_roi: str | None = None,
@@ -350,11 +350,9 @@ class RandomGeoPointSampler(GeoSampler):
         sampling_strategy: str = "random", #grid for ensuring every point is sampled once per epoch, random for random sampling respecting the sampling weights parameter
         sampling_weights: list[float] | None = None,
     ) -> None:
-        super().__init__(point_dataset, roi)
+        super().__init__(dataset, roi)
 
-        self.res = scene_dataset.res
-        self.scene_dataset = scene_dataset
-
+        self.res = res
         self.size = _to_tuple(size)
         self.centered = centered
         self.resample = resample
@@ -408,6 +406,8 @@ class RandomGeoPointSampler(GeoSampler):
         """
         if self.sampling_strategy == "random":
             sampling_indices = list(torch.multinomial(torch.tensor(self.sampling_weights), len(self.hits), replacement=False))
+        elif self.sampling_strategy == "in_order":
+            sampling_indices = list(range(len(self.hits)))
         else:
             sampling_indices = list(torch.randperm(len(self.hits)))
 

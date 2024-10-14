@@ -401,7 +401,7 @@ class PointDataset(GeoDataset):
             engine="c",
             usecols=self.metadata_columns + self.location_columns + self.time_columns,
             sep=";",
-            nrows=1000000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
+            #nrows=1000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
             converters=converters,
         )
 
@@ -468,10 +468,10 @@ class PointDataset(GeoDataset):
         center = query.center
         
         center = BoundingBox(
-            round(center.minx, 6),
             round(center.maxx, 6),
-            round(center.miny, 6),
-            round(center.maxy, 6),
+            round(center.minx, 6),
+            round(center.miny, 5),
+            round(center.maxy, 5),
             center.mint,
             center.maxt,
         )
@@ -492,8 +492,10 @@ class PointDataset(GeoDataset):
             
             bboxes, metadata = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))        
             bboxes = [BoundingBox(*bbox) for bbox in bboxes]  
+            bboxes = [BoundingBox(round(bbox.maxx, 6), round(bbox.minx, 6), round(bbox.miny, 5), round(bbox.maxy, 5), bbox.mint, bbox.maxt) for bbox in bboxes]
            
             centered = [(bbox == center)*1 for bbox in bboxes]
+                
             center = [[center.minx, center.miny]]
             location = [[bbox.minx, bbox.miny] for bbox in bboxes]   
             metadata = {col: [m[col] for m in metadata] for col in self.metadata_columns}       
@@ -504,6 +506,7 @@ class PointDataset(GeoDataset):
             else:
                 id = [0]*len(bboxes)
 
+            pixel_coords = [[]]
             if self.res > 0:
                 query_width = round((query.maxx - query.minx)/self.res)
                 query_height = round((query.maxy - query.miny)/self.res)
@@ -655,6 +658,7 @@ class RasterDataset(GeoDataset):
             unique_files = list(set(unique_files))
         else:
             unique_files = self.files
+
         
         for filepath in unique_files:
             match = re.match(filename_regex, os.path.basename(filepath))
@@ -1202,6 +1206,7 @@ class IntersectionPointPredictorsDataset(GeoDataset):
         Raises:
             IndexError: if query is not within bounds of the index
         """
+        
         if not query.intersects(self.bounds):
             raise IndexError(
                 f"query: {query} not found in index with bounds: {self.bounds}"

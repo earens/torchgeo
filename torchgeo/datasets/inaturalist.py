@@ -6,7 +6,7 @@
 import glob
 import os
 import sys
-from typing import Any
+from typing import Any, Callable, Sequence
 
 import pandas as pd
 from rasterio.crs import CRS
@@ -30,82 +30,48 @@ class INaturalist(GeoDataset):
     .. versionadded:: 0.3
     """
 
+    date_format = "%Y-%m-%d"
     res = 0
     _crs = CRS.from_epsg(4326)  # Lat/Lon
+    all_metadata_columns = ["observation_uuid", "observer_id", "positional_accuracy", "taxon_id", "quality_grade"]
 
-    def __init__(self, root: str = "data") -> None:
+
+    def __init__(
+            self, 
+            paths: str = "data",
+            crs: CRS | None = None,
+            res: float = 0,        
+            metadata_columns: Sequence[str] | None  = ["taxon_id"],
+            location_columns: Sequence[str] = ["longitude", "latitude"],
+            time_columns: Sequence[str] = ["observed_on"],
+            transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+            cache: bool = False,
+        ) -> None:
         """Initialize a new Dataset instance.
 
         Args:
-            root: root directory where dataset can be found
-
-        Raises:
-            DatasetNotFoundError: If dataset is not found.
+            paths: Path to one or more CSV files.
+            crs: The CRS of the dataset.
+            res: The resolution of the dataset.
+            metadata_columns: The metadata columns to include.
+            location_columns: The location columns to include.
+            time_columns: The time columns to include.
+            transforms: A function/transform that takes in a sample and returns a transformed version.
+            cache: if True, cache file handle to speed up repeated sampling
         """
-        super().__init__()
 
-        self.root = root
+        if metadata_columns is not None:
+            assert len(metadata_columns) == len(set(metadata_columns)), "Metadata columns must be unique"
+            for metadata_column in metadata_columns:
+                assert metadata_column in self.all_metadata_columns, f"Metadata column {metadata_column} not found in dataset"
 
-        files = glob.glob(os.path.join(root, "**.csv"))
-        if not files:
-            raise DatasetNotFoundError(self)
+        assert len(location_columns) == len(set(location_columns)), "Location columns must be unique"
+        for location_column in location_columns:
+            assert location_column in self.all_metadata_columns, f"Location column {location_column} not found in dataset"
 
-        # Read CSV file
-        data = pd.read_csv(
-            files[0],
-            engine="c",
-            usecols=["observed_on", "time_observed_at", "latitude", "longitude"],
-        )
 
-        # Dataset contains many possible timestamps:
-        #
-        # * observed_on_string: no consistent format (can't use)
-        # * observed_on: day precision (better)
-        # * time_observed_at: second precision (best)
-        # * created_at: when observation was submitted (shouldn't use)
-        # * updated_at: when submission was updated (shouldn't use)
-        #
-        # The created_at/updated_at timestamps can be years after the actual submission,
-        # so they shouldn't be used, even if observed_on/time_observed_at are missing.
+        assert len(time_columns) == len(set(time_columns)), "Time columns must be unique"        
+        for time_column in time_columns:
+            assert time_column in self.all_metadata_columns, f"Time column {time_column} not found in dataset"
 
-        # Convert from pandas DataFrame to rtree Index
-        i = 0
-        for date, time, y, x in data.itertuples(index=False, name=None):
-            # Skip rows without lat/lon
-            if pd.isna(y) or pd.isna(x):
-                continue
-
-            if not pd.isna(time):
-                mint, maxt = disambiguate_timestamp(time, "%Y-%m-%d %H:%M:%S %z")
-            elif not pd.isna(date):
-                mint, maxt = disambiguate_timestamp(date, "%Y-%m-%d")
-            else:
-                mint, maxt = 0, sys.maxsize
-
-            coords = (x, x, y, y, mint, maxt)
-            self.index.insert(i, coords)
-            i += 1
-
-    def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
-        """Retrieve metadata indexed by query.
-
-        Args:
-            query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
-
-        Returns:
-            sample of metadata at that index
-
-        Raises:
-            IndexError: if query is not found in the index
-        """
-        hits = self.index.intersection(tuple(query), objects=True)
-        bboxes = [hit.bbox for hit in hits]
-
-        if not bboxes:
-            raise IndexError(
-                f"query: {query} not found in index with bounds: {self.bounds}"
-            )
-
-        sample = {"crs": self.crs, "bbox": bboxes}
-
-        return sample
+        super().__init__(paths, crs, res, metadata_columns, location_columns, time_columns, transforms, cache)

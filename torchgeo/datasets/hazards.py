@@ -1,48 +1,34 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
-"""Bioclim Rasters."""
+"""Hazard Rasters."""
 
 from collections.abc import Callable, Sequence
 from typing import Any
-import glob
-import re
-import os
 
 from rasterio.crs import CRS
 
 from torchgeo.datasets.geo import RasterDataset
 
-from torchgeo.datasets.utils import tile_tif
 
 
 
 
-class Chelsa(RasterDataset):
-    r"""Bioclimatic variables.
+class Hazards(RasterDataset):
+    r"""Hazard variables.
     TODO: add more details about the dataset
     """
 
-    filename_glob = "*.tif"
+    filename_glob = "intensity_returnperiod_*.*"
 
-    filename_regex = r"""
-        CHELSA_clt
-        _(?P<band>[a-zA-Z]+) 
-        _(?P<month>\d{2})
-        _(?P<year>\d{4})
-        _V\.2\.1
+    filename_regex = r"""intensity_returnperiod
+        _(?P<band>(\d+y)) 
         (?P<tile>_\d+)? #optional tile number
         \.
     """
 
-    date_format = "%m%Y"
-    all_bands = [
-        "clt",
-        "pr",
-        "tas",
-        "tasmax",
-        "tasmin",
-    ]
+    date_format = ""
+    all_bands = ["100y"]
     separate_files = True
 
     def __init__(
@@ -51,6 +37,7 @@ class Chelsa(RasterDataset):
         crs: CRS | None = None,
         res: float | None = None,
         bands: Sequence[str] = None,
+        insert_band: str = None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
@@ -84,4 +71,4 @@ class Chelsa(RasterDataset):
 
         self.filename_glob = self.filename_glob.format(bands[0])
 
-        super().__init__(paths, crs, res, bands, transforms, cache)
+        super().__init__(paths, crs, res, bands, insert_band, transforms, cache)

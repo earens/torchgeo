@@ -47,7 +47,7 @@ class GLC23(PointDataset):
     date_format = "%j-%Y"
     res = 0
     crs = CRS.from_epsg(4326)  # Lat/Lon
-    all_metadata_columns = ['lat',"lon","dayOfYear", "year",'glcID', 'gbifID', 'observer', 'datasetName', 'geoUncertaintyInM','speciesId', 'patchID', 'timeSerieID']
+    all_metadata_columns = ["Id", 'lat',"lon","dayOfYear", "year",'glcID', 'gbifID', 'observer', 'datasetName', 'geoUncertaintyInM','speciesId', 'patchID', 'timeSerieID']
 
     def __init__(
         self,

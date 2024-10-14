@@ -61,6 +61,7 @@ from .geo import (
 from .gid15 import GID15
 from .glc23 import GLC23
 from .globbiomass import GlobBiomass
+from .hazards import Hazards
 from .idtrees import IDTReeS
 from .inaturalist import INaturalist
 from .inria import InriaAerialImageLabeling
@@ -82,6 +83,7 @@ from .landsat import (
     Landsat9,
 )
 from .levircd import LEVIRCD, LEVIRCDBase, LEVIRCDPlus
+from .location import Location
 from .loveda import LoveDA
 from .mapinwild import MapInWild
 from .millionaid import MillionAID
@@ -142,6 +144,7 @@ from .utils import (
 from .vaihingen import Vaihingen2D
 from .vhr10 import VHR10
 from .western_usa_live_fuel_moisture import WesternUSALiveFuelMoisture
+from .worldclim import Worldclim
 from .xview import XView2
 from .zuericrop import ZueriCrop
 
@@ -175,6 +178,7 @@ __all__ = (
     "GBIF",
     "GLC23",
     "GlobBiomass",
+    "Hazards",
     "INaturalist",
     "IOBench",
     "L7Irish",
@@ -192,6 +196,7 @@ __all__ = (
     "Landsat7",
     "Landsat8",
     "Landsat9",
+    "Location",
     "NAIP",
     "NCCM",
     "NLCD",
@@ -202,6 +207,7 @@ __all__ = (
     "Sentinel2",
     "SouthAfricaCropType",
     "SouthAmericaSoybean",
+    "Worldclim",
     # NonGeoDataset
     "ADVANCE",
     "BeninSmallHolderCashews",
