@@ -11,9 +11,6 @@ from rasterio.crs import CRS
 from torchgeo.datasets.geo import RasterDataset
 
 
-
-
-
 class Hazards(RasterDataset):
     r"""Hazard variables.
     TODO: add more details about the dataset

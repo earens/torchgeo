@@ -5,17 +5,10 @@
 
 from collections.abc import Callable, Sequence
 from typing import Any
-import glob
-import re
-import os
 
 from rasterio.crs import CRS
 
 from torchgeo.datasets.geo import RasterDataset
-
-from torchgeo.datasets.utils import tile_tif
-
-
 
 
 class Worldclim(RasterDataset):

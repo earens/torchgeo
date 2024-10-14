@@ -5,17 +5,10 @@
 
 from collections.abc import Callable, Sequence
 from typing import Any
-import glob
-import re
-import os
 
 from rasterio.crs import CRS
 
 from torchgeo.datasets.geo import RasterDataset
-
-from torchgeo.datasets.utils import tile_tif
-
-
 
 
 class Chelsa(RasterDataset):
@@ -36,13 +29,7 @@ class Chelsa(RasterDataset):
     """
 
     date_format = "%m%Y"
-    all_bands = [
-        "clt",
-        "pr",
-        "tas",
-        "tasmax",
-        "tasmin",
-    ]
+    all_bands = ["clt", "pr", "tas", "tasmax", "tasmin"]
     separate_files = True
 
     def __init__(

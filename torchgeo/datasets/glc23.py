@@ -3,34 +3,17 @@
 
 """Dataset for Location-based species presence prediction."""
 
-import glob
-import os
-import sys
-from collections.abc import Callable
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Sequence
+from typing import Any
 
-import torch
-
-
-
-import numpy as np
-import pandas as pd
 from rasterio.crs import CRS
 
 from torchgeo.datasets.geo import PointDataset
-from torchgeo.datasets.utils import (
-    BoundingBox,
-    DatasetNotFoundError,
-    disambiguate_timestamp,
-    sum_samples
-)
-
-import math
 
 
 class GLC23(PointDataset):
     """GeoLifeCLef2023 species observations.
-    
+
     The `GeoLifeClef2023 <https://www.imageclef.org/GeoLifeCLEF2023>` dataset is a collection of species observations and environmental rasters in Europe for biodiversity monitoring. This dataset comprises a subset only covering point wise species occurence data.
 
     Dataset features:
@@ -44,17 +27,32 @@ class GLC23(PointDataset):
     * 10040 species IDs
 
     """
+
     date_format = "%j-%Y"
     res = 0
     crs = CRS.from_epsg(4326)  # Lat/Lon
-    all_metadata_columns = ["Id", 'lat',"lon","dayOfYear", "year",'glcID', 'gbifID', 'observer', 'datasetName', 'geoUncertaintyInM','speciesId', 'patchID', 'timeSerieID']
+    all_metadata_columns = [
+        "Id",
+        "lat",
+        "lon",
+        "dayOfYear",
+        "year",
+        "glcID",
+        "gbifID",
+        "observer",
+        "datasetName",
+        "geoUncertaintyInM",
+        "speciesId",
+        "patchID",
+        "timeSerieID",
+    ]
 
     def __init__(
         self,
         paths: str = "data",
         crs: CRS | None = None,
-        res: float = 0,        
-        metadata_columns: Sequence[str] | None  = ["speciesId"],
+        res: float = 0,
+        metadata_columns: Sequence[str] | None = ["speciesId"],
         location_columns: Sequence[str] = ["lon", "lat"],
         time_columns: Sequence[str] = ["dayOfYear", "year"],
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -76,26 +74,37 @@ class GLC23(PointDataset):
             cache: if True, cache file handle to speed up repeated sampling
         """
         if metadata_columns is not None:
-            assert len(metadata_columns) == len(set(metadata_columns)), "Metadata columns must be unique"
+            assert len(metadata_columns) == len(
+                set(metadata_columns)
+            ), "Metadata columns must be unique"
             for metadata_column in metadata_columns:
-                assert metadata_column in self.all_metadata_columns, f"Metadata column {metadata_column} not found in dataset"
+                assert (
+                    metadata_column in self.all_metadata_columns
+                ), f"Metadata column {metadata_column} not found in dataset"
 
-        assert len(location_columns) == len(set(location_columns)), "Location columns must be unique"
+        assert len(location_columns) == len(
+            set(location_columns)
+        ), "Location columns must be unique"
         for location_column in location_columns:
-            assert location_column in self.all_metadata_columns, f"Location column {location_column} not found in dataset"
+            assert (
+                location_column in self.all_metadata_columns
+            ), f"Location column {location_column} not found in dataset"
 
-
-        assert len(time_columns) == len(set(time_columns)), "Time columns must be unique"        
+        assert len(time_columns) == len(
+            set(time_columns)
+        ), "Time columns must be unique"
         for time_column in time_columns:
-            assert time_column in self.all_metadata_columns, f"Time column {time_column} not found in dataset"
+            assert (
+                time_column in self.all_metadata_columns
+            ), f"Time column {time_column} not found in dataset"
 
-        super().__init__(paths, crs, res, metadata_columns, location_columns, time_columns, transforms, cache)
-
-
-    
-
-        
-
-        
-
-    
+        super().__init__(
+            paths,
+            crs,
+            res,
+            metadata_columns,
+            location_columns,
+            time_columns,
+            transforms,
+            cache,
+        )

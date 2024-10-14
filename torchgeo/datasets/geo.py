@@ -11,11 +11,12 @@ import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any, cast, Union
+from typing import Any, cast
 
 import fiona
 import fiona.transform
 import numpy as np
+import pandas as pd
 import pyproj
 import rasterio
 import rasterio.merge
@@ -25,22 +26,16 @@ from rasterio.crs import CRS
 from rasterio.io import DatasetReader
 from rasterio.vrt import WarpedVRT
 from rtree.index import Index, Property
-from rtree import index
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.datasets import ImageFolder
 from torchvision.datasets.folder import default_loader as pil_loader
-import pandas as pd
 from tqdm import tqdm
-from ast import literal_eval
-
-from torch.profiler import profile, record_function, ProfilerActivity
-
 
 from .utils import (
     BoundingBox,
-    ExtendedBoundingBox,
     DatasetNotFoundError,
+    ExtendedBoundingBox,
     array_to_tensor,
     concat_samples,
     disambiguate_timestamp,
@@ -128,10 +123,10 @@ class GeoDataset(Dataset[dict[str, Any]], abc.ABC):
 
         # Create an R-tree to index the dataset
         p = Property()
-        #p.leaf_capacity = 100
-        #p.index_capacity = 100
-        #p.fill_factor = 0.9
-        #p.variant = index.RT_Star
+        # p.leaf_capacity = 100
+        # p.index_capacity = 100
+        # p.fill_factor = 0.9
+        # p.variant = index.RT_Star
         p.dimension = 3
         self.index = Index(interleaved=False, properties=p)
 
@@ -351,7 +346,7 @@ class PointDataset(GeoDataset):
 
     def __init__(
         self,
-        paths: Union[str, Iterable[str]] = "data",
+        paths: str | Iterable[str] = "data",
         crs: CRS | None = None,
         res: float | None = None,
         metadata_columns: Sequence[str] | None = None,
@@ -360,7 +355,6 @@ class PointDataset(GeoDataset):
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         cache: bool = True,
     ) -> None:
-
         """Initialize a new PointDataset instance.
 
         Args:
@@ -377,7 +371,6 @@ class PointDataset(GeoDataset):
         Raises:
             DatasetNotFoundError: If dataset is not found.
         """
-
         super().__init__(transforms)
 
         self.paths = paths
@@ -388,72 +381,99 @@ class PointDataset(GeoDataset):
 
         # Prepare dataframe
 
-        files = glob.glob(os.path.join(paths, '**.csv'))
+        files = glob.glob(os.path.join(paths, "**.csv"))
         if not files:
             raise DatasetNotFoundError(self)
-        
-        converter = [lambda x: x.strip("[]").split(", ")]*len(self.metadata_columns)
+
+        converter = [lambda x: x.strip("[]").split(", ")] * len(self.metadata_columns)
         converters = dict(zip(self.metadata_columns, converter))
-        
+
         print(f"Indexing {self.__class__.__name__} dataset. This may take a while...")
         data = pd.read_table(
-            files[0], #TODO: what if data is in multiple files and only some columns align?
+            files[
+                0
+            ],  # TODO: what if data is in multiple files and only some columns align?
             engine="c",
             usecols=self.metadata_columns + self.location_columns + self.time_columns,
             sep=";",
-            #nrows=1000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
+            # nrows=1000, #NOTE: You might want to limit the number of samples when pre-transforms are not implemented
             converters=converters,
         )
 
-        #check if metadata columns contain lists
-        if len(self.metadata_columns) > 0 and not isinstance(data[self.metadata_columns[0]][0], list):
+        # check if metadata columns contain lists
+        if len(self.metadata_columns) > 0 and not isinstance(
+            data[self.metadata_columns[0]][0], list
+        ):
             data = (
                 data.groupby(self.location_columns + self.time_columns)
                 .agg({col: lambda x: list(x) for col in self.metadata_columns})
                 .reset_index()
-            ) #TODO: move this to pre_processing maybe?
-        self.data = data[self.location_columns + self.time_columns + self.metadata_columns]
-
+            )  # TODO: move this to pre_processing maybe?
+        self.data = data[
+            self.location_columns + self.time_columns + self.metadata_columns
+        ]
 
         # Populate the dataset index
-        #NOTE: having a generator function speeds up tree construction drastically (see: https://rtree.readthedocs.io/en/latest/performance.html#performance)
+        # NOTE: having a generator function speeds up tree construction drastically (see: https://rtree.readthedocs.io/en/latest/performance.html#performance)
         def generator_function():
             i = 0
-            for values in tqdm(self.data.itertuples(index=False, name=None), total=len(self.data)):
-
+            for values in tqdm(
+                self.data.itertuples(index=False, name=None), total=len(self.data)
+            ):
                 location = values[: len(self.location_columns)]
-                time = map(str, values[len(self.location_columns) : len(self.location_columns) + len(self.time_columns)])
+                time = map(
+                    str,
+                    values[
+                        len(self.location_columns) : len(self.location_columns)
+                        + len(self.time_columns)
+                    ],
+                )
                 metadata = values[len(self.location_columns) + len(self.time_columns) :]
 
-                #check if nan in time
+                # check if nan in time
                 try:
-                    mint, maxt = disambiguate_timestamp("-".join(time), self.date_format)
+                    mint, maxt = disambiguate_timestamp(
+                        "-".join(time), self.date_format
+                    )
                 except:
                     print(f"Error in time: {time}. Using mint=0 and maxt=sys.maxsize")
                     mint, maxt = 0, sys.maxsize
 
-                coords = (location[0], location[0], location[1], location[1], mint, maxt)
+                coords = (
+                    location[0],
+                    location[0],
+                    location[1],
+                    location[1],
+                    mint,
+                    maxt,
+                )
                 i += 1
 
                 if len(self.metadata_columns) > 0:
-                    yield(i-1, coords, {col: value for col, value in zip(self.metadata_columns, metadata)})
-                    #self.index.insert(
-                    #    i, coords, 
+                    yield (
+                        i - 1,
+                        coords,
+                        {
+                            col: value
+                            for col, value in zip(self.metadata_columns, metadata)
+                        },
+                    )
+                    # self.index.insert(
+                    #    i, coords,
                     #    {col: value for col, value in zip(self.metadata_columns, metadata)},
-                    #)
+                    # )
                 else:
-                    #self.index.insert(i, coords)
-                    yield(i-1, coords, None)
-
+                    # self.index.insert(i, coords)
+                    yield (i - 1, coords, None)
 
             if i == 0:
                 raise DatasetNotFoundError(self)
-        
-        self.index = Index(generator_function(), interleaved=False, properties=Property(dimension=3)) 
+
+        self.index = Index(
+            generator_function(), interleaved=False, properties=Property(dimension=3)
+        )
         self._crs = cast(CRS, crs)
         self._res = cast(float, res)
-
-
 
     def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
         """Retrieve location/labels and metadata indexed by query.
@@ -466,7 +486,7 @@ class PointDataset(GeoDataset):
 
         """
         center = query.center
-        
+
         center = BoundingBox(
             round(center.maxx, 6),
             round(center.minx, 6),
@@ -479,41 +499,62 @@ class PointDataset(GeoDataset):
 
         if len(hits) == 0:
             location = [[query.center.minx, query.center.miny]]
-         
 
             sample = {
                 "crs": self.crs,
                 "location": location,
-                "center": [[center.minx, center.miny]]
+                "center": [[center.minx, center.miny]],
             }
             return sample
 
         else:
-            
-            bboxes, metadata = map(list,zip(*[(hit.bounds, hit.object) for hit in hits]))        
-            bboxes = [BoundingBox(*bbox) for bbox in bboxes]  
-            bboxes = [BoundingBox(round(bbox.maxx, 6), round(bbox.minx, 6), round(bbox.miny, 5), round(bbox.maxy, 5), bbox.mint, bbox.maxt) for bbox in bboxes]
-           
-            centered = [(bbox == center)*1 for bbox in bboxes]
-                
+            bboxes, metadata = map(
+                list, zip(*[(hit.bounds, hit.object) for hit in hits])
+            )
+            bboxes = [BoundingBox(*bbox) for bbox in bboxes]
+            bboxes = [
+                BoundingBox(
+                    round(bbox.maxx, 6),
+                    round(bbox.minx, 6),
+                    round(bbox.miny, 5),
+                    round(bbox.maxy, 5),
+                    bbox.mint,
+                    bbox.maxt,
+                )
+                for bbox in bboxes
+            ]
+
+            centered = [(bbox == center) * 1 for bbox in bboxes]
+
             center = [[center.minx, center.miny]]
-            location = [[bbox.minx, bbox.miny] for bbox in bboxes]   
-            metadata = {col: [m[col] for m in metadata] for col in self.metadata_columns}       
-            
-            #if id in query attributes
+            location = [[bbox.minx, bbox.miny] for bbox in bboxes]
+            metadata = {
+                col: [m[col] for m in metadata] for col in self.metadata_columns
+            }
+
+            # if id in query attributes
             if isinstance(query, ExtendedBoundingBox):
-                id = [1 if hit.id == query.id else 0 for hit in hits] 
+                id = [1 if hit.id == query.id else 0 for hit in hits]
             else:
-                id = [0]*len(bboxes)
+                id = [0] * len(bboxes)
 
             pixel_coords = [[]]
             if self.res > 0:
-                query_width = round((query.maxx - query.minx)/self.res)
-                query_height = round((query.maxy - query.miny)/self.res)
-                pixel_coords = [[min(query_width-1, int((bbox.minx-query.minx)//self.res)), min(query_height-1,int(query_height - (bbox.miny-query.miny)//self.res))] for bbox in bboxes]
+                query_width = round((query.maxx - query.minx) / self.res)
+                query_height = round((query.maxy - query.miny) / self.res)
+                pixel_coords = [
+                    [
+                        min(query_width - 1, int((bbox.minx - query.minx) // self.res)),
+                        min(
+                            query_height - 1,
+                            int(query_height - (bbox.miny - query.miny) // self.res),
+                        ),
+                    ]
+                    for bbox in bboxes
+                ]
 
-        #TODO metadata transforms
-        
+        # TODO metadata transforms
+
         sample = {
             "crs": self.crs,
             "bbox": query,
@@ -523,11 +564,10 @@ class PointDataset(GeoDataset):
             "label": metadata,
             "centered": centered,
             "center": center,
-            "id": id
+            "id": id,
         }
 
         return sample
-
 
 
 class RasterDataset(GeoDataset):
@@ -589,7 +629,6 @@ class RasterDataset(GeoDataset):
 
         .. versionadded:: 0.5
         """
-        
         if self.is_image:
             return torch.float32
         else:
@@ -626,13 +665,12 @@ class RasterDataset(GeoDataset):
         """
         super().__init__(transforms)
 
-
         self.paths = paths
         self.bands = bands or self.all_bands
         self.cache = cache
         self.insert_band = insert_band
-    
-        #if data has been pre_transformed into one file 
+
+        # if data has been pre_transformed into one file
         if self.insert_band is None and len(self.bands) > 0:
             self.insert_band = self.bands[0]
         elif len(self.bands) > 0:
@@ -644,7 +682,7 @@ class RasterDataset(GeoDataset):
         filename_regex = re.compile(self.filename_regex, re.VERBOSE)
         unique_files = []
 
-        #for each file, change the band name in the filename to the first band in the list
+        # for each file, change the band name in the filename to the first band in the list
         if self.insert_band is not None:
             for i, filepath in enumerate(self.files):
                 match = re.match(filename_regex, os.path.basename(filepath))
@@ -659,7 +697,6 @@ class RasterDataset(GeoDataset):
         else:
             unique_files = self.files
 
-        
         for filepath in unique_files:
             match = re.match(filename_regex, os.path.basename(filepath))
             if match is not None:
@@ -730,7 +767,6 @@ class RasterDataset(GeoDataset):
         Raises:
             IndexError: if query is not found in the index
         """
-        
         hits = self.index.intersection(tuple(query), objects=True)
         filepaths = cast(list[str], [hit.object for hit in hits])
 
@@ -755,7 +791,7 @@ class RasterDataset(GeoDataset):
                             filename = filename[:start] + band + filename[end:]
                     filepath = os.path.join(directory, filename)
                     band_filepaths.append(filepath)
-                    #only keep unique filepaths
+                    # only keep unique filepaths
                 data_list.append(self._merge_files(band_filepaths, query))
             data = torch.cat(data_list)
         else:
@@ -1131,7 +1167,7 @@ class NonGeoClassificationDataset(NonGeoDataset, ImageFolder):  # type: ignore[m
         tensor = tensor.permute((2, 0, 1))
         label = torch.tensor(label)
         return tensor, label
-    
+
 
 class IntersectionPointPredictorsDataset(GeoDataset):
     """Dataset representing the intersection of a RasterDataset and a PointDataset.
@@ -1144,7 +1180,7 @@ class IntersectionPointPredictorsDataset(GeoDataset):
     These combinations require that all queries are present in the RasterDatasets but not necessarily in the PointDataset,
     and can be combined using an :class:`IntersectionPointPredictorsDataset`:
     """
-     
+
     def __init__(
         self,
         raster_dataset: GeoDataset,
@@ -1182,18 +1218,19 @@ class IntersectionPointPredictorsDataset(GeoDataset):
         self._merge_dataset_indices()
 
     def _merge_dataset_indices(self) -> None:
-        """Create a new R-tree that is driven by the raster dataset index. 
+        """Create a new R-tree that is driven by the raster dataset index.
         If a point does not intersect with the raster dataset, it is not included in the index
-        Rasters do not have to intersect with a point to be included."""
+        Rasters do not have to intersect with a point to be included.
+        """
         i = 0
 
-        #we potentially want to sample the entire predictor space, hence, we only need the raster dataset index (points are taken care of in sampler)
+        # we potentially want to sample the entire predictor space, hence, we only need the raster dataset index (points are taken care of in sampler)
         ds = self.datasets[0]
         hits = ds.index.intersection(ds.index.bounds, objects=True)
         for hit in hits:
             self.index.insert(i, hit.bounds)
             i += 1
-    
+
     def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
         """Retrieve raster and pointdata indexed by query.
 
@@ -1206,7 +1243,6 @@ class IntersectionPointPredictorsDataset(GeoDataset):
         Raises:
             IndexError: if query is not within bounds of the index
         """
-        
         if not query.intersects(self.bounds):
             raise IndexError(
                 f"query: {query} not found in index with bounds: {self.bounds}"
@@ -1220,7 +1256,7 @@ class IntersectionPointPredictorsDataset(GeoDataset):
             sample = self.transforms(sample)
 
         return sample
-    
+
     def __str__(self) -> str:
         """Return the informal string representation of the object.
 
@@ -1272,7 +1308,7 @@ class IntersectionPointPredictorsDataset(GeoDataset):
         self._res = new_res
         self.datasets[0].res = new_res
         self.datasets[1].res = new_res
-    
+
 
 class IntersectionDataset(GeoDataset):
     """Dataset representing the intersection of two GeoDatasets.
@@ -1340,18 +1376,20 @@ class IntersectionDataset(GeoDataset):
         # Merge dataset indices into a single index
         self._merge_dataset_indices()
 
-    def _create_intersection_tree(self, ds1: GeoDataset, ds2: GeoDataset, point:bool) -> None:
-
+    def _create_intersection_tree(
+        self, ds1: GeoDataset, ds2: GeoDataset, point: bool
+    ) -> None:
         def _bbox_collate_point(bbox1: BoundingBox, bbox2: BoundingBox) -> BoundingBox:
-            return bbox1 
+            return bbox1
+
         def _bbox_collate(bbox1: BoundingBox, bbox2: BoundingBox) -> BoundingBox:
             return bbox1 & bbox2
-        
+
         if point:
             collate = _bbox_collate_point
         else:
             collate = _bbox_collate
-        
+
         i = 0
 
         for hit1 in ds1.index.intersection(ds1.index.bounds, objects=True):
@@ -1364,24 +1402,22 @@ class IntersectionDataset(GeoDataset):
                 if box3.area > 0 or box1.area == 0 or box2.area == 0:
                     self.index.insert(i, tuple(box3))
                     i += 1
-        
+
         if i == 0:
             raise RuntimeError("Datasets have no spatiotemporal intersection")
 
     def _merge_dataset_indices(self) -> None:
         """Create a new R-tree out of the individual indices from two datasets."""
         ds1, ds2 = self.datasets
-        #check if the datasets are PointDataset
+        # check if the datasets are PointDataset
         if isinstance(ds1, PointDataset) and isinstance(ds2, PointDataset):
             raise TypeError("Intersection of PointDatasets is not supported.")
         else:
-            #pointdataset should be in second position
+            # pointdataset should be in second position
             if isinstance(ds1, PointDataset):
                 ds1, ds2 = ds2, ds1
 
         self._create_intersection_tree(ds1, ds2, isinstance(ds2, PointDataset))
-
-    
 
     def __getitem__(self, query: BoundingBox) -> dict[str, Any]:
         """Retrieve image and metadata indexed by query.
@@ -1420,7 +1456,6 @@ class IntersectionDataset(GeoDataset):
     type: IntersectionDataset
     bbox: {self.bounds}
     size: {len(self)}"""
-
 
     @property
     def crs(self) -> CRS:
